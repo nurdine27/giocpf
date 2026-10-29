@@ -1,0 +1,18 @@
+node_modules/
+.next/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+Thumbs.db
+npm-debug.log*
+
+
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:nurdine27/giocpf.git
+git push -u origin main

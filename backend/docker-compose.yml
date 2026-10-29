@@ -1,0 +1,20 @@
+name: gio
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gio
+      POSTGRES_USER: gio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gio_local_dev}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - gio_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gio -d gio']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  gio_postgres:

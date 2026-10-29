@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RegistrationStatus {
+  PENDENTE
+  EM_ANALISE
+  ACEITE
+  RECUSADA
+}
+
+model AdminUser {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  sessions     AdminSession[]
+}
+
+model AdminSession {
+  id        String    @id
+  adminId   String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model Course {
+  id             String         @id @default(cuid())
+  name           String
+  slug           String         @unique
+  area           String
+  description    String         @default("")
+  imageUrl       String?
+  duration       String?
+  requirements   String?
+  published      Boolean        @default(false)
+  enrollmentOpen Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  registrations  Registration[]
+
+  @@index([area, published])
+}
+
+model Registration {
+  id            String             @id @default(cuid())
+  reference     String             @unique
+  submissionKey String             @unique
+  name          String
+  phone         String
+  email         String?
+  age           Int?
+  province      String
+  district      String
+  area          String
+  courseName    String
+  courseId      String?
+  message       String?
+  status        RegistrationStatus @default(PENDENTE)
+  consentedAt   DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  course        Course?            @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  notes         RegistrationNote[]
+
+  @@index([status, createdAt])
+  @@index([courseId, createdAt])
+  @@index([name])
+}
+
+model RegistrationNote {
+  id             String       @id @default(cuid())
+  registrationId String
+  adminId        String
+  body           String
+  createdAt      DateTime     @default(now())
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  targetId  String
+  createdAt DateTime @default(now())
+
+  @@index([adminId, createdAt])
+}
