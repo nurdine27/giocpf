@@ -324,13 +324,13 @@ textarea {
 .section-heading h2,
 .faq-heading h2,
 .cta-band h2 {
-  font-size: clamp(32px, 4vw, 48px);
+  font-size: clamp(38px, 4.5vw, 58px);
   letter-spacing: -0.045em;
   line-height: 1.14;
   margin: 0;
 }
 .intro-grid > div p {
-  font-size: 16px;
+  font-size: 18px;
   color: var(--muted);
   margin: 0 0 12px;
 }
@@ -357,12 +357,12 @@ textarea {
 }
 .value-grid h3,
 .identity-grid h3 {
-  font-size: 19px;
+  font-size: 21px;
   margin: 12px 0 6px;
 }
 .value-grid p,
 .identity-grid p {
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.75;
   color: var(--muted);
   margin: 0;
@@ -379,7 +379,7 @@ textarea {
 }
 .section-heading p {
   max-width: 340px;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--muted);
   margin: 0 0 3px;
 }
@@ -422,17 +422,17 @@ textarea {
   font-size: 24px;
 }
 .area-card h3 {
-  font-size: 19px;
+  font-size: 21px;
   margin: 15px 0 6px;
   line-height: 1.3;
 }
 .area-card p {
-  font-size: 14px;
+  font-size: 16px;
   color: var(--muted);
   margin: 0 0 17px;
 }
 .area-link {
-  font-size: 14px;
+  font-size: 16px;
   margin-top: auto;
 }
 .identity-section {
@@ -533,7 +533,7 @@ textarea {
   margin: 13px 0;
 }
 .faq-heading p {
-  font-size: 15px;
+  font-size: 17px;
   color: var(--muted);
 }
 .faq-heading p a {
@@ -554,7 +554,7 @@ textarea {
   justify-content: space-between;
   gap: 14px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
 }
 .faq-list summary::-webkit-details-marker {
@@ -569,7 +569,7 @@ textarea {
   transform: rotate(45deg);
 }
 .faq-list details p {
-  font-size: 15px;
+  font-size: 17px;
   color: var(--muted);
   max-width: 600px;
   margin: 0 0 18px;
@@ -589,7 +589,7 @@ textarea {
   font-size: 31px;
 }
 .cta-band p {
-  font-size: 15px;
+  font-size: 17px;
   color: var(--muted);
   margin: 7px 0 0;
   max-width: 560px;
@@ -655,7 +655,7 @@ textarea {
 }
 .page-heading p {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 17px;
 }
 .course-toolbar {
   display: grid;
@@ -665,7 +665,7 @@ textarea {
 }
 .field label {
   display: block;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 700;
   margin-bottom: 6px;
 }
@@ -740,12 +740,12 @@ summary:focus-visible {
   gap: 14px;
 }
 .course-card h2 {
-  font-size: 17px;
+  font-size: 21px;
   line-height: 1.3;
   margin: 10px 0;
 }
 .course-card p {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--muted);
 }
 .course-area {
@@ -788,7 +788,7 @@ summary:focus-visible {
   border-radius: 5px;
 }
 .admin-stat span {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--muted);
 }
 .admin-stat strong {
@@ -805,7 +805,7 @@ summary:focus-visible {
   border-collapse: collapse;
   min-width: 680px;
   width: 100%;
-  font-size: 12px;
+  font-size: 15px;
 }
 .admin-table th,
 .admin-table td {
@@ -824,7 +824,7 @@ summary:focus-visible {
   background: #fff;
   padding: 14px;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 15px;
   overflow-wrap: anywhere;
 }
 .mobile-row-actions {

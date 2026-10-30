@@ -9,7 +9,7 @@ export function Header() {
     <header className="site-header">
       <div className="nav-wrap">
         <Link className="brand" href="/" onClick={() => setOpen(false)}>
-          <Image src="/images/gio-logo.png" alt="" width={46} height={46} />
+          <Image src="/images/gio-logo2.png" alt="" width={46} height={46} />
           <span>
             GIO<span className="brand-sub">CENTRO DE FORMAÇÃO</span>
           </span>
