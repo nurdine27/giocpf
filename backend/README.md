@@ -16,7 +16,7 @@ npm run admin:create
 npm run start:dev
 ```
 
-A API fica em http://localhost:4000. Define `APP_URL` como a origem frontend autorizada. O serviço PostgreSQL publica a porta 5432 apenas em loopback. Para pará-lo sem remover os dados: `docker compose stop postgres`.
+A API fica em http://localhost:4000. Define `APP_URL` como a origem frontend autorizada. O serviço PostgreSQL publica a porta 5433 em `127.0.0.1` para evitar conflitos com instalações locais de PostgreSQL; mantém `DATABASE_URL` apontado para `127.0.0.1:5433`. Para pará-lo sem remover os dados: `docker compose stop postgres`.
 
 ## Variáveis de ambiente
 

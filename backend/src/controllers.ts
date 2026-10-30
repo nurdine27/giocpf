@@ -141,14 +141,20 @@ export class AdminController {
     });
     return row;
   }
-  @Patch('courses/:id') async updateCourse(@Req() req: Request, @Body() d: CourseDto) {
+  @Patch('courses/:id') async updateCourse(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() d: CourseDto,
+  ) {
     await requireAdmin(this.db, req);
-    const id = req.params.id;
     return this.db.course.update({ where: { id }, data: d });
   }
-  @Patch('registrations/:id') async change(@Req() req: Request, @Body() d: StatusDto) {
+  @Patch('registrations/:id') async change(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() d: StatusDto,
+  ) {
     const a = await requireAdmin(this.db, req);
-    const id = req.params.id;
     const result = await this.db.registration.update({
       where: { id },
       data: { status: d.status as never },

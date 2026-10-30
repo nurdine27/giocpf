@@ -1,6 +1,6 @@
 import 'reflect-metadata';
-import dotenv from 'dotenv';
-dotenv.config();
+import { config as loadEnvironment } from 'dotenv';
+loadEnvironment();
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';

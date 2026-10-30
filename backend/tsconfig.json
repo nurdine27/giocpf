@@ -18,7 +18,8 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "types": ["node"],
-    "rootDir": "./"
+    "rootDir": "./",
+    "esModuleInterop": true
   },
   "include": ["src/**/*.ts", "prisma/**/*.ts", "scripts/**/*.ts"]
 }
