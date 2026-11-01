@@ -1,3 +1,4 @@
+import { API_BASE } from '@/lib/api-url';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { areas } from '@/lib/content';
@@ -32,7 +33,7 @@ async function getCourse(id: string): Promise<Course | undefined> {
     )
     .find((c) => c.slug === id);
   try {
-    const base = process.env.NEXT_PUBLIC_API_URL;
+    const base = API_BASE;
     if (base) {
       const r = await fetch(`${base}/courses`, { cache: 'no-store' });
       if (r.ok) {

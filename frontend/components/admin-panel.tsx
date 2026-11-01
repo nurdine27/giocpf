@@ -1,8 +1,10 @@
 'use client';
+import { API_BASE } from '@/lib/api-url';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-const api = process.env.NEXT_PUBLIC_API_URL;
+import { AdminListCard, FlashMessage } from './admin-ui';
+const api = API_BASE;
 type CourseRow = {
   id: string;
   name: string;
@@ -10,10 +12,12 @@ type CourseRow = {
   published: boolean;
   enrollmentOpen: boolean;
 };
+type TrendData={publications:{month:string;total:number}[];messages:{month:string;total:number}[];categories:{name:string;total:number}[]};
 export function AdminPanel() {
   const router = useRouter();
   const [data, setData] = useState<Record<string, number> | null>(null);
   const [error, setError] = useState('');
+  const [trends,setTrends]=useState<TrendData|null>(null);
   useEffect(() => {
     fetch(`${api}/admin/dashboard`, { credentials: 'include' })
       .then(async (r) => {
@@ -24,8 +28,9 @@ export function AdminPanel() {
         if (!r.ok) throw new Error('Não foi possível carregar o painel.');
         setData(await r.json());
       })
-      .catch((e) => setError(e.message));
+      .catch(() => setError('Não foi possível carregar os dados. Verifique a ligação e tente novamente.'));
   }, [router]);
+  useEffect(()=>{fetch(`${api}/admin/dashboard/trends`,{credentials:'include'}).then(r=>r.ok?r.json():null).then((v)=>{if(v)setTrends(v)}).catch(()=>setError('Algumas métricas não puderam ser carregadas.'));},[]);
   async function logout() {
     await fetch(`${api}/auth/logout`, { method: 'POST', credentials: 'include' });
     router.replace('/admin/login');
@@ -40,6 +45,9 @@ export function AdminPanel() {
       <nav className="admin-nav">
         <Link href="/admin/inscricoes">Inscrições</Link>
         <Link href="/admin/cursos">Cursos</Link>
+        <Link href="/admin/conteudos">Conteúdos</Link>
+        <Link href="/admin/administradores">Administradores</Link>
+        <Link href="/admin/mensagens">Mensagens</Link>
         <button className="button button-light" onClick={logout}>
           Terminar sessão
         </button>
@@ -60,6 +68,16 @@ export function AdminPanel() {
             ['Aceites', data.accepted],
             ['Recusadas', data.rejected],
             ['Cursos', data.courses],
+            ['Notícias', data.newsTotal],
+            ['Publicadas', data.newsPublished],
+            ['Rascunhos', data.newsDrafts],
+            ['Eventos', data.eventsTotal],
+            ['Próximos eventos', data.eventsUpcoming],
+            ['Eventos realizados', data.eventsPast],
+            ['Álbuns', data.albumsTotal],
+            ['Fotografias', data.photosTotal],
+            ['Mensagens', data.messagesTotal],
+            ['Não lidas', data.messagesUnread],
           ].map(([k, v]) => (
             <div className="admin-stat" key={k}>
               <span>{k}</span>
@@ -68,8 +86,25 @@ export function AdminPanel() {
           ))}
         </div>
       )}
+      {trends&&<section className="dashboard-charts"><article className="form-card"><h2>Publicações por mês</h2><div className="mini-chart">{trends.publications.map(x=><div key={x.month}><span style={{height:`${Math.max(5,x.total/Math.max(1,...trends.publications.map(y=>y.total))*100)}%`}}/><small>{x.month.slice(5)}</small></div>)}</div></article><article className="form-card"><h2>Mensagens recebidas</h2><div className="mini-chart chart-lime">{trends.messages.map(x=><div key={x.month}><span style={{height:`${Math.max(5,x.total/Math.max(1,...trends.messages.map(y=>y.total))*100)}%`}}/><small>{x.month.slice(5)}</small></div>)}</div></article><article className="form-card"><h2>Notícias por categoria</h2>{trends.categories.length?trends.categories.map(x=><p key={x.name} className="chart-category"><span>{x.name}</span><strong>{x.total}</strong></p>):<p className="empty-state">Ainda sem categorias publicadas.</p>}</article></section>}
     </main>
   );
+}
+
+export function ContentAdmin() {
+  const router = useRouter();
+  const [data, setData] = useState<{ news: Record<string, unknown>[]; events: Record<string, unknown>[]; albums: Record<string, unknown>[]; categories: Record<string, string>[] }>({ news: [], events: [], albums: [], categories: [] });
+  const [error, setError] = useState('');
+  const [flash, setFlash] = useState('');
+  const [tab, setTab] = useState('news');
+  const apiUrl = api;
+  async function load() { const r = await fetch(`${apiUrl}/admin/content`, { credentials: 'include' }); if (r.status === 401) return router.replace('/admin/login'); if (!r.ok) throw new Error('Falha ao carregar conteúdos.'); setData(await r.json()); }
+  useEffect(() => { load().catch(() => setError('Não foi possível carregar os conteúdos. Tente novamente.')); }, []);
+  async function create(e: React.FormEvent<HTMLFormElement>) { e.preventDefault(); const form = e.currentTarget; const raw = Object.fromEntries(new FormData(form)); const d: Record<string, unknown> = { ...raw }; for (const key of ['published','featured']) d[key] = (form.elements.namedItem(key) as HTMLInputElement | null)?.checked ?? false; const cover = form.elements.namedItem('coverFile') as HTMLInputElement | null; const gallery = form.elements.namedItem('galleryFiles') as HTMLInputElement | null; const files = [...(cover?.files ? Array.from(cover.files) : []), ...(gallery?.files ? Array.from(gallery.files) : [])]; if (files.length) { const fd = new FormData(); files.forEach((f) => fd.append('images', f)); const up = await fetch(`${apiUrl}/admin/content/upload`, { method:'POST', credentials:'include', body:fd }); if(!up.ok){setError('Upload falhou. Verifique Cloudinary, formato e limite de 10 MB por fotografia.');return;} const uploaded: {url:string;publicId:string;name?:string}[] = await up.json(); let i=0; if(cover?.files?.length){d.coverUrl=uploaded[i].url;d.coverPublicId=uploaded[i].publicId;i++;} if(gallery?.files?.length){const assets=uploaded.slice(i);d.photos=assets.map(x=>x.url).join('\n');d.photoAssets=JSON.stringify(assets.map(x=>({url:x.url,publicId:x.publicId,alt:x.name||''})));} } const r = await fetch(`${apiUrl}/admin/content/${tab}`, { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d) }); if(!r.ok){setError('Não foi possível guardar. Verifique os campos e URLs.');return;} form.reset(); setError(''); setFlash('Conteúdo criado com sucesso.'); await load(); }
+  async function change(kind: string, id: string, body: object) { const publish = 'published' in body; if(publish&&!window.confirm((body as {published:boolean}).published?'Publicar este conteúdo no site?':'Despublicar este conteúdo?'))return; const r = await fetch(`${apiUrl}/admin/content/${kind}/${id}`, {method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(!r.ok) setError('Não foi possível actualizar.'); else {setError('');setFlash('Estado actualizado com sucesso.');} await load(); }
+  async function remove(kind:string,id:string){ if(!window.confirm('Eliminar este conteúdo permanentemente? Esta acção não pode ser anulada.')) return; const r=await fetch(`${apiUrl}/admin/content/${kind}/${id}`,{method:'DELETE',credentials:'include'}); if(!r.ok)setError('Não foi possível eliminar.'); else {setError('');setFlash('Conteúdo eliminado.');} await load(); }
+  const rows = data[tab as 'news'|'events'|'albums'];
+  return <main id="conteudo" className="admin-shell"><div className="page-heading"><div className="section-kicker">GESTÃO</div><h1>Conteúdos</h1><p>Notícias, eventos e álbuns da instituição.</p></div><nav className="admin-nav"><Link href="/admin">Resumo</Link><Link href="/admin/cursos">Cursos</Link>{[['news','Notícias'],['events','Eventos'],['albums','Galeria']].map(([k,v])=><button key={k} className="button button-light" onClick={()=>setTab(k)}>{v}</button>)}</nav>{flash&&<FlashMessage onClose={()=>setFlash("")}>{flash}</FlashMessage>}{error&&<FlashMessage type="error">{error}</FlashMessage>}<form className="form-card" onSubmit={create}><h2>{tab==='news'?'Nova notícia':tab==='events'?'Novo evento':'Novo álbum'}</h2><div className="form-grid"><label className="field">Título<input name="title" required minLength={3}/></label>{tab==='news'&&<><label className="field">Subtítulo<input name="subtitle"/></label><label className="field">Resumo<input name="summary"/></label><label className="field">Categoria<select name="category"><option value="">Sem categoria</option>{data.categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="field full">Conteúdo<textarea name="content" required/></label></>}{tab==='events'&&<><label className="field">Local<input name="location"/></label><label className="field">Início<input type="datetime-local" name="startsAt" required/></label><label className="field">Fim<input type="datetime-local" name="endsAt"/></label><label className="field">Estado<select name="status"><option value="AGENDADO">Agendado</option><option value="EM_CURSO">Em curso</option><option value="REALIZADO">Realizado</option><option value="CANCELADO">Cancelado</option></select></label></>}<label className="field">Imagem de capa<input type="file" name="coverFile" accept="image/jpeg,image/png,image/webp,image/gif"/><input type="url" name="coverUrl" placeholder="URL opcional https://…"/></label><label className="field full">Fotografias adicionais<input type="file" name="galleryFiles" accept="image/jpeg,image/png,image/webp,image/gif" multiple/></label>{tab==='albums'&&<><label className="field full">URLs de fotografias (uma por linha)<textarea name="photos"/></label><label className="field">Associar notícia (ID)<input name="newsId"/></label><label className="field">Associar evento (ID)<input name="eventId"/></label></>}{tab==='events'&&<label className="field full">Descrição<textarea name="description"/></label>}<label className="check-field"><input type="checkbox" name="published"/> Publicar</label><label className="check-field"><input type="checkbox" name="featured"/> Destacar na página inicial</label><button className="button button-primary">Guardar</button></div></form><div className="admin-list-stack">{rows.map((item)=>{const id=String(item.id), title=String(item.title), pub=Boolean(item.published), author=(item.author as {email?:string}|undefined)?.email;return <AdminListCard key={id} title={title} meta={`${pub?"Publicado":"Rascunho"}${author?` · Criado por ${author}`:""}`} actions={[{label:pub?"Despublicar":"Publicar",onSelect:()=>change(tab,id,{published:!pub})},{label:"Eliminar",danger:true,onSelect:()=>remove(tab,id)}]}/>})}{rows.length===0&&<p className="empty-state">Ainda não há conteúdos nesta secção.</p>}</div></main>
 }
 export function RegistrationAdmin() {
   const [rows, setRows] = useState<Record<string, string>[]>([]);
@@ -92,7 +127,7 @@ export function RegistrationAdmin() {
         const x = await r.json();
         setRows(x.items ?? []);
       })
-      .catch((e) => setErr(e.message));
+      .catch(() => setErr('Não foi possível carregar as inscrições. Verifique a ligação e tente novamente.'));
   }, [q, status, page, router]);
   async function change(id: string, next: string) {
     if (next === 'RECUSADA' && !window.confirm('Confirmar a recusa desta inscrição?')) return;
@@ -247,8 +282,8 @@ export function CourseAdmin() {
         const courses: CourseRow[] = await r.json();
         if (active) setRows(courses);
       })
-      .catch((e) => {
-        if (active) setError(e instanceof Error ? e.message : 'Erro ao carregar os cursos.');
+      .catch(() => {
+        if (active) setError('Não foi possível carregar os cursos. Verifique a ligação e tente novamente.');
       });
     return () => {
       active = false;

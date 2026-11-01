@@ -1,0 +1,8 @@
+import { API_BASE } from '@/lib/api-url';
+import Image from 'next/image';import Link from 'next/link';import type {Metadata} from 'next';
+export const metadata:Metadata={title:'Galeria'};const api=API_BASE;
+type Album={slug:string;title:string;description:string;coverUrl:string|null;_count?:{photos:number}};
+export default async function GaleriaPage({searchParams}:{searchParams:Promise<{page?:string}>}){const query=await searchParams;const page=Math.max(1,Number(query.page)||1);let result:{items:Album[];page:number;pages:number}={items:[],page,pages:0};try{const r=await fetch(`${api}/content/albums?page=${page}`,{next:{revalidate:60}});if(r.ok)result=await r.json();}catch{}return <main id="conteudo" className="page-wrap"><div className="page-heading"><div className="section-kicker">MOMENTOS GIO</div><h1>Galeria de fotografias</h1><p>Actividades, eventos e conquistas da nossa comunidade.</p></div><div className="public-content-grid">{result.items.map(a=><Link className="public-news-card" href={`/galeria/${a.slug}`} key={a.slug}>{a.coverUrl&&<Image src={a.coverUrl} alt="" width={640} height={400}/>}<div><h2>{a.title}</h2><p>{a.description}</p><small>{a._count?.photos??0} fotografias</small></div></Link>)}</div>{!result.items.length&&<p className="empty-state">Ainda não há álbuns publicados.</p>}<nav className="admin-nav"><Link aria-disabled={page<=1} href={`/galeria?page=${Math.max(1,page-1)}`}>Anterior</Link><span>Página {result.page} de {result.pages}</span><Link aria-disabled={page>=result.pages} href={`/galeria?page=${Math.min(result.pages,page+1)}`}>Seguinte</Link></nav></main>}
+
+
+

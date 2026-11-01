@@ -111,7 +111,7 @@ export class RegistrationController {
     }
   }
   @Get() async list(@Req() req: Request) {
-    await requireAdmin(this.db, req);
+    await requirePermission(this.db, req, 'registrations.read');
     const page = Math.max(1, Number(req.query.page) || 1);
     const q = String(req.query.q ?? '').slice(0, 100);
     const status = String(req.query.status ?? '');
@@ -151,6 +151,23 @@ export async function requireAdmin(db: PrismaService, req: Request) {
   const session = await db.adminSession.findUnique({ where: { id }, include: { admin: true } });
   if (!session || session.expiresAt < new Date()) throw new UnauthorizedException();
   return session.admin;
+}
+export const ADMIN_PERMISSIONS = ['dashboard.read','registrations.read','registrations.manage','courses.manage','news.manage','events.manage','gallery.manage','users.manage','messages.read','messages.manage','messages.reply','settings.manage'] as const;
+export async function requirePermission(db: PrismaService, req: Request, permission: typeof ADMIN_PERMISSIONS[number]) {
+  const admin = await requireAdmin(db, req);
+  if (!admin.isSuperAdmin && !admin.permissions.includes(permission)) {
+    const { ForbiddenException } = await import('@nestjs/common');
+    throw new ForbiddenException('Não tem permissão para esta acção.');
+  }
+  return admin;
+}
+export async function requireAnyPermission(db: PrismaService, req: Request, permissions: (typeof ADMIN_PERMISSIONS)[number][]) {
+  const admin = await requireAdmin(db, req);
+  if (!admin.isSuperAdmin && !permissions.some((p) => admin.permissions.includes(p))) {
+    const { ForbiddenException } = await import('@nestjs/common');
+    throw new ForbiddenException('Não tem permissão para esta acção.');
+  }
+  return admin;
 }
 @Controller('courses')
 export class PublicCoursesController {

@@ -18,8 +18,108 @@ model AdminUser {
   id           String         @id @default(cuid())
   email        String         @unique
   passwordHash String
+  permissions  String[] @default([])
+  isSuperAdmin Boolean  @default(false)
+  displayName  String   @default("")
+  phone        String?
+  profilePhotoUrl String?
   createdAt    DateTime       @default(now())
   sessions     AdminSession[]
+  news         News[]
+  events       Event[]
+  albums       Album[]
+  passwordOtps AdminPasswordOtp[]
+  messages     ContactMessage[]
+  replies      MessageReply[]
+  settingsUpdates InstitutionSetting[]
+}
+
+model NewsCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  news      News[]
+  createdAt DateTime @default(now())
+}
+
+model News {
+  id          String        @id @default(cuid())
+  title       String
+  slug        String        @unique
+  subtitle    String        @default("")
+  summary     String        @default("")
+  content     String
+  coverUrl    String?
+  coverPublicId String?
+  published   Boolean       @default(false)
+  featured    Boolean       @default(false)
+  publishedAt DateTime?
+  authorId    String
+  categoryId  String?
+  author      AdminUser     @relation(fields: [authorId], references: [id])
+  category    NewsCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  photos      Photo[]
+  albums      Album[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  @@index([published, publishedAt])
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  description String   @default("")
+  location    String   @default("")
+  coverUrl    String?
+  coverPublicId String?
+  startsAt    DateTime
+  endsAt      DateTime?
+  status      String   @default("AGENDADO")
+  published   Boolean  @default(false)
+  featured    Boolean  @default(false)
+  authorId    String
+  author      AdminUser @relation(fields: [authorId], references: [id])
+  photos      Photo[]
+  albums      Album[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([published, startsAt])
+}
+
+model Album {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  description String   @default("")
+  coverUrl    String?
+  coverPublicId String?
+  published   Boolean  @default(false)
+  authorId    String
+  newsId      String?
+  eventId     String?
+  author      AdminUser @relation(fields: [authorId], references: [id])
+  news        News?    @relation(fields: [newsId], references: [id], onDelete: SetNull)
+  event       Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  photos      Photo[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Photo {
+  id        String   @id @default(cuid())
+  url       String
+  publicId  String?
+  alt       String   @default("")
+  sortOrder Int      @default(0)
+  newsId    String?
+  eventId   String?
+  albumId   String?
+  news      News?    @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  album     Album?   @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@index([albumId, sortOrder])
 }
 
 model AdminSession {
@@ -30,6 +130,17 @@ model AdminSession {
   admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
+}
+
+model AdminPasswordOtp {
+  id        String   @id @default(cuid())
+  adminId   String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  admin     AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  @@index([adminId, expiresAt])
 }
 
 model Course {
@@ -93,6 +204,49 @@ model AuditLog {
   action    String
   targetId  String
   createdAt DateTime @default(now())
+  module    String   @default("system")
+  metadata  Json?
 
   @@index([adminId, createdAt])
+}
+
+enum ContactMessageStatus {
+  NAO_LIDA
+  LIDA
+  EM_TRATAMENTO
+  RESPONDIDA
+  ARQUIVADA
+}
+model ContactMessage {
+  id        String @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  category  String
+  body      String
+  status    ContactMessageStatus @default(NAO_LIDA)
+  assignedAdminId String?
+  assignedAdmin AdminUser? @relation(fields:[assignedAdminId],references:[id],onDelete:SetNull)
+  replies   MessageReply[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+  @@index([category, createdAt])
+}
+model MessageReply {
+  id String @id @default(cuid())
+  messageId String
+  adminId String
+  body String
+  createdAt DateTime @default(now())
+  message ContactMessage @relation(fields:[messageId],references:[id],onDelete:Cascade)
+  admin AdminUser @relation(fields:[adminId],references:[id],onDelete:Restrict)
+  @@index([messageId,createdAt])
+}
+model InstitutionSetting {
+  key String @id
+  value Json
+  updatedById String?
+  updatedBy AdminUser? @relation(fields:[updatedById],references:[id],onDelete:SetNull)
+  updatedAt DateTime @updatedAt
 }

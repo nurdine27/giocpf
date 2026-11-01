@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { areas, faqs } from '@/lib/content';
 import { Icon } from '@/components/icon';
+import { PublicUpdates } from '@/components/public-updates';
 export default function Home() {
   return (
     <main id="conteudo">
@@ -213,6 +214,7 @@ export default function Home() {
           </figure>
         </div>
       </section>
+      <PublicUpdates />
       <section className="faq-section section" id="faq">
         <div className="faq-heading">
           <div className="section-kicker">PERGUNTAS FREQUENTES</div>

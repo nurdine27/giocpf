@@ -1,4 +1,5 @@
 'use client';
+import { API_BASE } from '@/lib/api-url';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -12,7 +13,7 @@ function Catalog() {
     areas.flatMap((a) => a.courses.map((course) => ({ course, area: a.name }))),
   );
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/courses`)
+    fetch(`${API_BASE}/courses`)
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: { name: string; area: string }[]) => {
         if (rows.length) setCatalog(rows.map((r) => ({ course: r.name, area: r.area })));

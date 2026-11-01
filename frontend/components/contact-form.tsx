@@ -1,0 +1,8 @@
+'use client';
+import { API_BASE } from '@/lib/api-url';
+import { useState } from 'react';
+import { FlashMessage } from './admin-ui';
+export function ContactForm(){const [message,setMessage]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);async function submit(e:React.FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setError('');const d=Object.fromEntries(new FormData(e.currentTarget));try{const r=await fetch(`${API_BASE}/contact-messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const x=await r.json();if(!r.ok)throw new Error();setMessage(x.message);e.currentTarget.reset();}catch{setError('Não foi possível enviar agora. Tente novamente.');}finally{setBusy(false);}}return <form className="form-card contact-form" onSubmit={submit}><h2>Envie-nos uma mensagem</h2>{message&&<FlashMessage>{message}</FlashMessage>}{error&&<FlashMessage type="error">{error}</FlashMessage>}<label className="field">Nome completo<input name="name" required minLength={2} maxLength={120}/></label><label className="field">E-mail<input name="email" type="email" required/></label><label className="field">Assunto<input name="subject" required minLength={2} maxLength={180}/></label><label className="field">Categoria<select name="category" required><option value="">Seleccione</option>{['Informações gerais','Inscrições','Cursos','Serviços académicos','Parcerias','Outros'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field">Mensagem<textarea name="body" minLength={10} maxLength={10000} required/></label><button className="button button-primary" disabled={busy}>{busy?'A enviar…':'Enviar mensagem'}</button></form>}
+
+
+

@@ -1,8 +1,9 @@
 'use client';
+import { API_BASE } from '@/lib/api-url';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-const api = process.env.NEXT_PUBLIC_API_URL;
+const api = API_BASE;
 type Course = {
   name: string;
   area: string;
@@ -28,7 +29,7 @@ export function CourseEditForm({ id }: { id: string }) {
         if (!r.ok) throw new Error(d.message);
         setC(d);
       })
-      .catch((e) => setError(e.message || 'Não foi possível carregar o curso.'));
+      .catch(() => setError('Não foi possível carregar o curso. Verifique a ligação e tente novamente.'));
   }, [id, router]);
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

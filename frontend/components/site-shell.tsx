@@ -3,8 +3,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
 import { Icon } from './icon';
+import { usePathname } from 'next/navigation';
 export function Header() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  if (pathname.startsWith('/admin')) return null;
   return (
     <header className="site-header">
       <div className="nav-wrap">
@@ -34,6 +37,9 @@ export function Header() {
           <Link onClick={() => setOpen(false)} href="/cursos">
             Cursos
           </Link>
+          <Link onClick={() => setOpen(false)} href="/noticias">Notícias</Link>
+          <Link onClick={() => setOpen(false)} href="/eventos">Eventos</Link>
+          <Link onClick={() => setOpen(false)} href="/galeria">Galeria</Link>
           <Link onClick={() => setOpen(false)} href="/#identidade">
             Missão e visão
           </Link>
@@ -56,6 +62,8 @@ export function Header() {
   );
 }
 export function Footer() {
+  const pathname = usePathname();
+  if (pathname.startsWith('/admin')) return null;
   return (
     <footer className="site-footer">
       <div className="footer-grid">

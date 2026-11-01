@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Icon } from '@/components/icon';
+import { ContactForm } from '@/components/contact-form';
 export const metadata: Metadata = { title: 'Contactos' };
 export default function Contactos() {
   return (
@@ -34,6 +35,7 @@ export default function Contactos() {
           <p>Gio Centro de Formação</p>
         </a>
       </div>
+      <ContactForm />
     </main>
   );
 }

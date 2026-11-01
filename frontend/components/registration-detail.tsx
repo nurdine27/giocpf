@@ -1,8 +1,9 @@
 'use client';
+import { API_BASE } from '@/lib/api-url';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-const api = process.env.NEXT_PUBLIC_API_URL;
+const api = API_BASE;
 type RecordData = {
   id: string;
   reference: string;

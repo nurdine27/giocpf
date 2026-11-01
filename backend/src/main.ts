@@ -1,13 +1,17 @@
 import 'reflect-metadata';
 import { config as loadEnvironment } from 'dotenv';
 loadEnvironment();
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { SafeHttpExceptionFilter } from './http-exception.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: true });
+  app.setGlobalPrefix('api');
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1', prefix: 'v' });
+  app.useGlobalFilters(new SafeHttpExceptionFilter());
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({

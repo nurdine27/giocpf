@@ -1,0 +1,9 @@
+'use client';
+import { API_BASE } from '@/lib/api-url';
+import {useEffect,useState} from 'react';
+import {FlashMessage} from './admin-ui';
+const api=API_BASE;
+export function AdminSettings(){const [values,setValues]=useState<Record<string,string>>({});const [flash,setFlash]=useState('');const [error,setError]=useState('');useEffect(()=>{fetch(`${api}/admin/institution-settings`,{credentials:'include'}).then(r=>{if(!r.ok)throw Error();return r.json()}).then((rows:{key:string;value:unknown}[])=>setValues(Object.fromEntries(rows.map(x=>[x.key,String(x.value??'')])))).catch(()=>setError('Não foi possível carregar as configurações.'));},[]);async function save(key:string){try{const r=await fetch(`${api}/admin/institution-settings/${key}`,{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:values[key]})});if(!r.ok)throw Error();setFlash('Configuração guardada.');}catch{setError('Não foi possível guardar a configuração.');}}const keys=[['institutionName','Nome da instituição'],['institutionEmail','E-mail institucional'],['phone','Telefone'],['address','Endereço'],['logoUrl','URL do logótipo'],['website','Website'],['facebook','Facebook'],['instagram','Instagram']];return <main id="conteudo" className="admin-shell"><div className="page-heading"><div className="section-kicker">INSTITUIÇÃO</div><h1>Configurações</h1><p>Informações institucionais usadas pelo sistema.</p></div>{flash&&<FlashMessage>{flash}</FlashMessage>}{error&&<FlashMessage type="error">{error}</FlashMessage>}<div className="settings-grid">{keys.map(([key,label])=><div className="form-card" key={key}><label className="field">{label}<input value={values[key]??''} onChange={e=>setValues({...values,[key]:e.target.value})}/></label><button className="button button-primary" onClick={()=>save(key)}>Guardar</button></div>)}</div></main>}
+
+
+
