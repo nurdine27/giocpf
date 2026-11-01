@@ -27,7 +27,7 @@ async function bootstrap() {
   );
   await ensureSystemRoles(app.get(PrismaService));
   await ensureDefaultCampuses(app.get(PrismaService));
-  const port = Number(process.env.API_PORT ?? 4000);
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
   await app.listen(port, '0.0.0.0');
   console.log(`GIO API listening on ${port}`);
 }

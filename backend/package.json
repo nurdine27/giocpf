@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:if-needed": "ts-node prisma/seed.ts",
     "admin:create": "ts-node scripts/create-admin.ts",
     "test": "node --test test/*.test.cjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,cjs,mjs,cts,css,json,md,yml}\"",
