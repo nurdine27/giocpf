@@ -16,6 +16,7 @@ type CatalogCourse = {
   duration?: string | null;
   imageUrl?: string | null;
   enrollmentOpen: boolean;
+  nextStart?: string | null;
 };
 
 function slugify(s: string) {
@@ -114,6 +115,15 @@ function Catalog() {
                     <span className="status-pill tone-success">Inscrições abertas</span>
                   ) : (
                     <span className="status-pill tone-neutral">Inscrições encerradas</span>
+                  )}
+                  {c.nextStart && (
+                    <span className="next-start">
+                      <Icon name="event" /> Próxima turma:{' '}
+                      {new Date(c.nextStart).toLocaleDateString('pt-PT', {
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                    </span>
                   )}
                   {c.duration && (
                     <span>

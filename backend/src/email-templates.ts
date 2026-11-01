@@ -132,23 +132,42 @@ type Registration = {
   area: string;
   province: string;
   district: string;
+  campusName?: string | null;
+  className?: string | null;
+  startsAt?: Date | null;
+  waitlisted?: boolean;
 };
 
+function formatDay(date?: Date | null) {
+  return date
+    ? date.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+}
+
+function placementText(r: Registration) {
+  return r.waitlisted
+    ? 'Neste momento não há vagas disponíveis. Ficou em lista de espera e será colocado(a) na próxima turma com vagas.'
+    : null;
+}
+
 export function registrationReceivedEmail(r: Registration) {
-  const rows: [string, string][] = [
+  const rows: [string, string | null | undefined][] = [
     ['Referência', r.reference],
     ['Curso', r.courseName],
-    ['Área', r.area],
+    ['Pólo', r.campusName],
+    ['Turma', r.waitlisted ? 'Lista de espera' : r.className],
+    ['Início das aulas', formatDay(r.startsAt)],
   ];
+  const waiting = placementText(r);
   return {
     subject: `Inscrição recebida — ${r.courseName}`,
     html: layout({
       preheader: `Referência ${r.reference}. Entraremos em contacto em breve.`,
       title: `Obrigado, ${r.name.split(' ')[0]}!`,
-      body: `<p style="margin:0 0 14px">Recebemos a sua inscrição. A nossa equipa entrará em contacto para confirmar a turma, o horário e os documentos necessários.</p>${infoTable(rows)}<p style="margin:0;color:${BRAND.muted};font-size:13px">Guarde a referência para qualquer contacto connosco.</p>`,
+      body: `<p style="margin:0 0 14px">Recebemos a sua inscrição. A nossa equipa entrará em contacto para confirmar a vaga e os documentos necessários.</p>${infoTable(rows)}${waiting ? `<p style="margin:0 0 14px;padding:12px;border-radius:6px;background:#fbf1d9;color:#7a5405">${escape(waiting)}</p>` : ''}<p style="margin:0;color:${BRAND.muted};font-size:13px">Guarde a referência para qualquer contacto connosco.</p>`,
       cta: { label: 'Ver cursos', href: siteUrl('/cursos') },
     }),
-    text: `Obrigado, ${r.name}!\n\nRecebemos a sua inscrição.\n\n${textRows(rows)}\n\nA nossa equipa entrará em contacto em breve.`,
+    text: `Obrigado, ${r.name}!\n\nRecebemos a sua inscrição.\n\n${textRows(rows)}${waiting ? `\n\n${waiting}` : ''}\n\nA nossa equipa entrará em contacto em breve.`,
   };
 }
 
@@ -159,7 +178,9 @@ export function registrationNotificationEmail(r: Registration & { id: string }) 
     ['Telefone', r.phone],
     ['E-mail', r.email],
     ['Curso', r.courseName],
-    ['Localização', `${r.district}, ${r.province}`],
+    ['Pólo', r.campusName],
+    ['Turma', r.waitlisted ? 'Lista de espera (sem vagas)' : r.className],
+    ['Residência', `${r.district}, ${r.province}`],
   ];
   return {
     subject: `Nova inscrição: ${r.name} — ${r.courseName}`,

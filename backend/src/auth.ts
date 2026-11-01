@@ -3,7 +3,13 @@ import { createHash } from 'node:crypto';
 import type { Request } from 'express';
 import type { AdminUser, Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
-import { PERMISSION_KEYS, SESSION_COOKIE, SYSTEM_ROLES, type Permission } from './constants';
+import {
+  DEFAULT_CAMPUSES,
+  PERMISSION_KEYS,
+  SESSION_COOKIE,
+  SYSTEM_ROLES,
+  type Permission,
+} from './constants';
 
 export type AuthenticatedAdmin = AdminUser & {
   role: Role | null;
@@ -59,6 +65,12 @@ export async function requireAnyPermission(
   if (!permissions.some((p) => can(admin, p)))
     throw new ForbiddenException('Não tem permissão para esta acção.');
   return admin;
+}
+
+/** Seeds the first campuses once; afterwards they are managed in the admin. */
+export async function ensureDefaultCampuses(db: PrismaService) {
+  if ((await db.campus.count()) > 0) return;
+  await db.campus.createMany({ data: DEFAULT_CAMPUSES, skipDuplicates: true });
 }
 
 /** Creates the built-in roles and keeps their permission lists aligned with the code. */

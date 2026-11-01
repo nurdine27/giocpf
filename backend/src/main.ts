@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { SafeHttpExceptionFilter } from './http-exception.filter';
 import { PrismaService } from './prisma.service';
-import { ensureSystemRoles } from './auth';
+import { ensureDefaultCampuses, ensureSystemRoles } from './auth';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: true });
   app.setGlobalPrefix('api');
@@ -26,6 +26,7 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );
   await ensureSystemRoles(app.get(PrismaService));
+  await ensureDefaultCampuses(app.get(PrismaService));
   const port = Number(process.env.API_PORT ?? 4000);
   await app.listen(port, '0.0.0.0');
   console.log(`GIO API listening on ${port}`);

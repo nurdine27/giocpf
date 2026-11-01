@@ -3,8 +3,15 @@
 export const PERMISSIONS = [
   { key: 'dashboard.read', label: 'Ver painel e estatísticas', group: 'Geral' },
   { key: 'registrations.read', label: 'Consultar inscrições', group: 'Académico' },
-  { key: 'registrations.manage', label: 'Alterar estado de inscrições', group: 'Académico' },
+  {
+    key: 'registrations.manage',
+    label: 'Alterar estado e turma de inscrições',
+    group: 'Académico',
+  },
+  { key: 'registrations.export', label: 'Exportar listas de estudantes', group: 'Académico' },
   { key: 'courses.manage', label: 'Gerir cursos', group: 'Académico' },
+  { key: 'classes.read', label: 'Consultar turmas e períodos', group: 'Académico' },
+  { key: 'classes.manage', label: 'Gerir turmas, vagas, períodos e pólos', group: 'Académico' },
   { key: 'news.manage', label: 'Gerir notícias', group: 'Conteúdos' },
   { key: 'events.manage', label: 'Gerir eventos', group: 'Conteúdos' },
   { key: 'gallery.manage', label: 'Gerir galeria', group: 'Conteúdos' },
@@ -13,6 +20,7 @@ export const PERMISSIONS = [
   { key: 'messages.reply', label: 'Responder mensagens', group: 'Comunicação' },
   { key: 'settings.manage', label: 'Configurações institucionais', group: 'Sistema' },
   { key: 'users.manage', label: 'Gerir administradores e funções', group: 'Sistema' },
+  { key: 'audit.read', label: 'Consultar registo de auditoria', group: 'Sistema' },
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number]['key'];
@@ -32,14 +40,22 @@ export const SYSTEM_ROLES: { name: string; description: string; permissions: Per
   },
   {
     name: 'Secretaria académica',
-    description: 'Gere inscrições e cursos e consulta as mensagens.',
+    description: 'Gere inscrições, cursos, turmas e períodos e consulta as mensagens.',
     permissions: [
       'dashboard.read',
       'registrations.read',
       'registrations.manage',
+      'registrations.export',
       'courses.manage',
+      'classes.read',
+      'classes.manage',
       'messages.read',
     ],
+  },
+  {
+    name: 'Formador',
+    description: 'Consulta as turmas e as listas de estudantes.',
+    permissions: ['dashboard.read', 'registrations.read', 'registrations.export', 'classes.read'],
   },
   {
     name: 'Comunicação',
@@ -56,8 +72,8 @@ export const SYSTEM_ROLES: { name: string; description: string; permissions: Per
   },
   {
     name: 'Consulta',
-    description: 'Acesso apenas de leitura ao painel, inscrições e mensagens.',
-    permissions: ['dashboard.read', 'registrations.read', 'messages.read'],
+    description: 'Acesso apenas de leitura ao painel, inscrições, turmas e mensagens.',
+    permissions: ['dashboard.read', 'registrations.read', 'classes.read', 'messages.read'],
   },
 ];
 
@@ -141,3 +157,58 @@ export const MAX_PHOTOS_PER_ITEM = 100;
 export const SESSION_COOKIE = 'gio_session';
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 export const OTP_TTL_MS = 10 * 60 * 1000;
+
+/** Campuses created on first start-up when none exist. Managed afterwards in the admin. */
+export const DEFAULT_CAMPUSES = [
+  { name: 'Nacala', city: 'Nacala' },
+  { name: 'Cidade de Nampula', city: 'Nampula' },
+];
+
+export const SHIFTS = {
+  MANHA: 'Manhã',
+  TARDE: 'Tarde',
+  NOITE: 'Noite',
+  FIM_DE_SEMANA: 'Fim de semana',
+} as const;
+export type Shift = keyof typeof SHIFTS;
+
+/** ABERTA accepts new students; the others never receive automatic placements. */
+export const CLASS_STATUSES = ['ABERTA', 'FECHADA', 'EM_CURSO', 'CONCLUIDA', 'CANCELADA'] as const;
+export type ClassStatus = (typeof CLASS_STATUSES)[number];
+
+/** Registration statuses that occupy a seat in a class. */
+export const SEAT_STATUSES: RegistrationStatus[] = ['PENDENTE', 'EM_ANALISE', 'ACEITE'];
+
+export const MIN_STUDENT_AGE = 14;
+export const MAX_STUDENT_AGE = 99;
+
+/** Options shown in the public registration form (served by GET /registrations/form-options). */
+export const STUDENT_OPTIONS = {
+  genders: ['Feminino', 'Masculino', 'Prefiro não dizer'],
+  documentTypes: ['Bilhete de Identidade', 'Passaporte', 'Cédula pessoal', 'DIRE', 'Outro'],
+  educationLevels: [
+    'Ensino primário',
+    '7.ª classe',
+    '10.ª classe',
+    '12.ª classe',
+    'Técnico médio',
+    'Bacharelato / Licenciatura',
+    'Mestrado ou superior',
+  ],
+  occupations: [
+    'Estudante',
+    'Empregado(a)',
+    'Trabalhador(a) por conta própria',
+    'Desempregado(a)',
+    'Outro',
+  ],
+  referralSources: [
+    'Facebook',
+    'Instagram',
+    'WhatsApp',
+    'Rádio ou televisão',
+    'Amigo ou familiar',
+    'Escola ou empresa',
+    'Outro',
+  ],
+};

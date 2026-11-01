@@ -13,6 +13,8 @@ import {
 } from './communications.controller';
 import { AdminUsersController } from './users.controller';
 import { UploadsController } from './uploads.controller';
+import { ClassesController } from './classes.controller';
+import { ReportsController } from './reports.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }])],
@@ -21,6 +23,8 @@ import { UploadsController } from './uploads.controller';
     AdminController,
     AdminUsersController,
     UploadsController,
+    ClassesController,
+    ReportsController,
     RegistrationController,
     PublicCoursesController,
     AdminContentController,

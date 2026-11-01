@@ -34,11 +34,13 @@ import { audit, can, hashToken, requireAdmin, requirePermission } from './auth';
 import {
   OTP_TTL_MS,
   REGISTRATION_STATUSES,
+  SEAT_STATUSES,
   SESSION_COOKIE,
   SESSION_TTL_MS,
   type RegistrationStatus,
 } from './constants';
 import { areas } from './catalog';
+import { availableClasses, hasFreeSeat, promoteWaitlist, seatsTaken } from './class-allocation';
 import { assertImageUrl, deleteImage } from './cloudinary';
 import { sendEmail } from './email';
 import { passwordResetEmail } from './email-templates';
@@ -59,7 +61,9 @@ class ResetDto {
   @IsString() @MinLength(8) @MaxLength(200) password!: string;
 }
 class StatusDto {
-  @IsIn(REGISTRATION_STATUSES) status!: RegistrationStatus;
+  @IsOptional() @IsIn(REGISTRATION_STATUSES) status?: RegistrationStatus;
+  /** Move to another class; empty string sends the registration to the waiting list. */
+  @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
 }
 class CourseDto {
@@ -222,13 +226,16 @@ export class AdminController {
   /** Lightweight counters used by the sidebar badges. */
   @Get('badges') async badges(@Req() req: Request) {
     const a = await requireAdmin(this.db, req);
-    const [pendingRegistrations, unreadMessages] = await Promise.all([
+    const [pendingRegistrations, unreadMessages, waitlisted] = await Promise.all([
       can(a, 'registrations.read')
         ? this.db.registration.count({ where: { status: 'PENDENTE' } })
         : 0,
       can(a, 'messages.read') ? this.db.contactMessage.count({ where: { status: 'NAO_LIDA' } }) : 0,
+      can(a, 'classes.read')
+        ? this.db.registration.count({ where: { waitlisted: true, status: { in: SEAT_STATUSES } } })
+        : 0,
     ]);
-    return { pendingRegistrations, unreadMessages };
+    return { pendingRegistrations, unreadMessages, waitlisted };
   }
 
   @Get('dashboard') async dashboard(@Req() req: Request) {
@@ -257,6 +264,8 @@ export class AdminController {
       recentRegistrations,
       recentMessages,
       nextEvents,
+      openClasses,
+      waitlisted,
     ] = await Promise.all([
       this.db.registration.groupBy({ by: ['status'], _count: { _all: true } }),
       this.db.registration.count(),
@@ -308,7 +317,26 @@ export class AdminController {
         take: 3,
         select: { id: true, title: true, startsAt: true, location: true, published: true },
       }),
+      this.db.classGroup.findMany({
+        where: { status: { in: ['ABERTA', 'EM_CURSO'] } },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          capacity: true,
+          campus: { select: { name: true } },
+          period: { select: { startsAt: true } },
+        },
+        orderBy: { period: { startsAt: 'asc' } },
+        take: 50,
+      }),
+      this.db.registration.count({ where: { waitlisted: true, status: { in: SEAT_STATUSES } } }),
     ]);
+    const taken = await seatsTaken(
+      this.db,
+      openClasses.map((c) => c.id),
+    );
+    const classes = openClasses.map((c) => ({ ...c, seatsTaken: taken.get(c.id) ?? 0 }));
 
     const byStatus = Object.fromEntries(
       REGISTRATION_STATUSES.map((s) => [
@@ -337,6 +365,15 @@ export class AdminController {
         recent: recentMessages,
       },
       courses: { total: courses, open: openCourses },
+      classes: {
+        open: classes.length,
+        capacity: classes.reduce((sum, c) => sum + c.capacity, 0),
+        occupied: classes.reduce((sum, c) => sum + c.seatsTaken, 0),
+        waitlisted,
+        top: [...classes]
+          .sort((x, y) => y.seatsTaken / y.capacity - x.seatsTaken / x.capacity)
+          .slice(0, 6),
+      },
       content: { newsPublished, newsDrafts, eventsUpcoming, albums, photos, nextEvents },
     };
   }
@@ -348,6 +385,9 @@ export class AdminController {
     @Query('q') q = '',
     @Query('status') status = '',
     @Query('course') course = '',
+    @Query('campusId') campusId = '',
+    @Query('classId') classId = '',
+    @Query('waitlisted') waitlisted = '',
   ) {
     await requirePermission(this.db, req, 'registrations.read');
     const p = Math.max(1, Number(page) || 1);
@@ -367,6 +407,9 @@ export class AdminController {
         ? { status: status as RegistrationStatus }
         : {}),
       ...(course ? { courseName: course } : {}),
+      ...(campusId ? { campusId } : {}),
+      ...(classId ? { classId } : {}),
+      ...(waitlisted === 'true' ? { waitlisted: true } : {}),
     };
     const [data, total] = await Promise.all([
       this.db.registration.findMany({
@@ -382,7 +425,10 @@ export class AdminController {
           courseName: true,
           province: true,
           status: true,
+          waitlisted: true,
           createdAt: true,
+          campus: { select: { name: true } },
+          classGroup: { select: { id: true, code: true, name: true } },
         },
       }),
       this.db.registration.count({ where }),
@@ -397,15 +443,24 @@ export class AdminController {
     await requirePermission(this.db, req, 'registrations.read');
     const row = await this.db.registration.findUnique({
       where: { id },
-      include: { notes: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        notes: { orderBy: { createdAt: 'desc' } },
+        campus: { select: { id: true, name: true } },
+        classGroup: {
+          include: { period: { select: { name: true, startsAt: true, endsAt: true } } },
+        },
+      },
     });
     if (!row) throw new NotFoundException('Inscrição não encontrada.');
+    // Classes the registration can be moved to: same course, any campus, with seats or current.
+    const options = row.courseId ? await availableClasses(this.db, row.courseId) : [];
     const authors = await this.db.adminUser.findMany({
       where: { id: { in: [...new Set(row.notes.map((n) => n.adminId))] } },
       select: { id: true, email: true, displayName: true },
     });
     return {
       ...row,
+      classOptions: options,
       notes: row.notes.map((n) => {
         const author = authors.find((a) => a.id === n.adminId);
         return { ...n, author: author?.displayName || author?.email || 'Administrador' };
@@ -421,19 +476,61 @@ export class AdminController {
     const a = await requirePermission(this.db, req, 'registrations.manage');
     const current = await this.db.registration.findUnique({
       where: { id },
-      select: { status: true },
+      select: { status: true, classId: true, courseId: true, campusId: true },
     });
     if (!current) throw new NotFoundException('Inscrição não encontrada.');
-    const result = await this.db.registration.update({ where: { id }, data: { status: d.status } });
+    const status = d.status ?? current.status;
+    const occupiesSeat = SEAT_STATUSES.includes(status);
+    const targetClass = d.classId === undefined ? current.classId : d.classId || null;
+
+    const result = await this.db.$transaction(async (tx) => {
+      if (targetClass) {
+        const group = await tx.classGroup.findUnique({ where: { id: targetClass } });
+        if (!group) throw new BadRequestException('Turma inexistente.');
+        if (group.courseId !== current.courseId)
+          throw new BadRequestException('A turma escolhida é de outro curso.');
+        // Only check capacity when this registration starts occupying a seat in that class.
+        const needsSeat =
+          occupiesSeat &&
+          (targetClass !== current.classId || !SEAT_STATUSES.includes(current.status));
+        if (needsSeat && !(await hasFreeSeat(tx, targetClass, id)))
+          throw new BadRequestException('A turma escolhida já não tem vagas disponíveis.');
+      }
+      const updated = await tx.registration.update({
+        where: { id },
+        data: {
+          status,
+          classId: targetClass,
+          waitlisted: occupiesSeat && !targetClass,
+          ...(targetClass && targetClass !== current.classId
+            ? {
+                campusId: (await tx.classGroup.findUnique({ where: { id: targetClass } }))!
+                  .campusId,
+              }
+            : {}),
+        },
+      });
+      // A seat was released (refused or moved away): offer it to the waiting list.
+      const released =
+        current.classId &&
+        SEAT_STATUSES.includes(current.status) &&
+        (!occupiesSeat || targetClass !== current.classId);
+      const promoted = released ? await promoteWaitlist(tx, current.classId!) : [];
+      return { updated, promoted };
+    });
+
     if (d.note?.trim())
       await this.db.registrationNote.create({
         data: { registrationId: id, adminId: a.id, body: d.note.trim() },
       });
-    if (current.status !== d.status)
-      await audit(this.db, a.id, `STATUS_${d.status}`, id, 'registrations', {
+    if (current.status !== status || current.classId !== targetClass)
+      await audit(this.db, a.id, `STATUS_${status}`, id, 'registrations', {
         from: current.status,
+        fromClass: current.classId,
+        toClass: targetClass,
+        promoted: result.promoted,
       });
-    return result;
+    return { ...result.updated, promoted: result.promoted.length };
   }
 
   @Get('courses') async courses(@Req() req: Request) {

@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { Icon } from '../icon';
 import type { StatusMeta, Tone } from '@/lib/constants';
@@ -272,6 +273,13 @@ export type MenuAction = {
   hidden?: boolean;
 };
 
+const MOBILE_QUERY = '(max-width: 760px)';
+const MENU_ITEM_HEIGHT = 42;
+
+/**
+ * Kebab menu. The list is rendered in a portal with fixed positioning so it is never clipped by
+ * scrollable tables; on small screens CSS turns it into a bottom sheet.
+ */
 export function ActionMenu({
   label,
   actions,
@@ -282,72 +290,113 @@ export function ActionMenu({
   /** Heading shown at the top of the sheet on mobile. */
   title?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<React.CSSProperties | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const visible = actions.filter((a) => !a.hidden);
+  const open = position !== null;
+
+  function toggle() {
+    if (open) return setPosition(null);
+    const rect = trigger.current!.getBoundingClientRect();
+    if (window.matchMedia(MOBILE_QUERY).matches) return setPosition({});
+    const height = visible.length * MENU_ITEM_HEIGHT + 16;
+    const below = window.innerHeight - rect.bottom;
+    const upwards = below < height + 12 && rect.top > below;
+    setPosition({
+      right: Math.max(8, window.innerWidth - rect.right),
+      ...(upwards ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    });
+  }
+
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (
-        e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)
-      )
-        setOpen(false);
+    const close = () => setPosition(null);
+    const onPointer = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!menu.current?.contains(target) && !trigger.current?.contains(target)) close();
     };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        close();
+        trigger.current?.focus();
+      }
+    };
+    // Any scroll would detach a fixed menu from its button, so close instead of following it.
+    const onScroll = (e: Event) => !menu.current?.contains(e.target as Node) && close();
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', close);
+    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', close);
     };
   }, [open]);
-  const visible = actions.filter((a) => !a.hidden);
+
   if (!visible.length) return null;
   return (
-    <div className="action-menu" ref={ref} onClick={(e) => e.stopPropagation()}>
+    <div className="action-menu" onClick={(e) => e.stopPropagation()}>
       <button
+        ref={trigger}
         type="button"
         className="icon-btn"
         aria-label={`Acções: ${label}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
       >
         <Icon name="more_vert" />
       </button>
-      {open && (
-        <>
-          {/* On mobile the menu becomes a bottom sheet; the scrim closes it. */}
-          <button
-            type="button"
-            className="action-sheet-scrim"
-            aria-label="Fechar menu"
-            onClick={() => setOpen(false)}
-          />
-          <div className="action-menu-list" role="menu" aria-label={label}>
-            <div className="action-sheet-head">
-              <span className="action-sheet-grip" />
-              <strong>{title ?? label}</strong>
-            </div>
-            {visible.map((a) => (
+      {open &&
+        createPortal(
+          <div className="action-menu-portal" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="action-sheet-scrim"
+              aria-label="Fechar menu"
+              onClick={() => setPosition(null)}
+            />
+            <div
+              ref={menu}
+              className="action-menu-list is-floating"
+              role="menu"
+              aria-label={label}
+              style={position}
+            >
+              <div className="action-sheet-head">
+                <span className="action-sheet-grip" />
+                <strong>{title ?? label}</strong>
+              </div>
+              {visible.map((a) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  key={a.label}
+                  className={a.danger ? 'is-danger' : ''}
+                  onClick={() => {
+                    setPosition(null);
+                    a.onSelect();
+                  }}
+                >
+                  <Icon name={a.icon} />
+                  {a.label}
+                </button>
+              ))}
               <button
                 type="button"
-                role="menuitem"
-                key={a.label}
-                className={a.danger ? 'is-danger' : ''}
-                onClick={() => {
-                  setOpen(false);
-                  a.onSelect();
-                }}
+                className="action-sheet-cancel"
+                onClick={() => setPosition(null)}
               >
-                <Icon name={a.icon} />
-                {a.label}
+                Cancelar
               </button>
-            ))}
-            <button type="button" className="action-sheet-cancel" onClick={() => setOpen(false)}>
-              Cancelar
-            </button>
-          </div>
-        </>
-      )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

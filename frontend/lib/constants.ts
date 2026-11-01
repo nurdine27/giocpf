@@ -66,7 +66,10 @@ export type Permission =
   | 'dashboard.read'
   | 'registrations.read'
   | 'registrations.manage'
+  | 'registrations.export'
   | 'courses.manage'
+  | 'classes.read'
+  | 'classes.manage'
   | 'news.manage'
   | 'events.manage'
   | 'gallery.manage'
@@ -74,11 +77,23 @@ export type Permission =
   | 'messages.manage'
   | 'messages.reply'
   | 'settings.manage'
-  | 'users.manage';
+  | 'users.manage'
+  | 'audit.read';
 
 export const CONTENT_PERMISSIONS: Permission[] = ['news.manage', 'events.manage', 'gallery.manage'];
 
-export type Badges = { pendingRegistrations: number; unreadMessages: number };
+/** Any of these lets the admin emit at least one report. */
+export const REPORT_PERMISSIONS: Permission[] = [
+  'registrations.export',
+  'courses.manage',
+  'classes.read',
+  'messages.read',
+  ...CONTENT_PERMISSIONS,
+  'audit.read',
+  'users.manage',
+];
+
+export type Badges = { pendingRegistrations: number; unreadMessages: number; waitlisted: number };
 
 export type NavItem = {
   href: string;
@@ -94,6 +109,12 @@ export const ADMIN_NAV: { group: string; items: NavItem[] }[] = [
     group: 'Geral',
     items: [
       { href: '/admin', icon: 'space_dashboard', label: 'Painel', permissions: ['dashboard.read'] },
+      {
+        href: '/admin/relatorios',
+        icon: 'summarize',
+        label: 'Relatórios',
+        permissions: REPORT_PERMISSIONS,
+      },
     ],
   },
   {
@@ -105,6 +126,13 @@ export const ADMIN_NAV: { group: string; items: NavItem[] }[] = [
         label: 'Inscrições',
         permissions: ['registrations.read'],
         badge: 'pendingRegistrations',
+      },
+      {
+        href: '/admin/turmas',
+        icon: 'groups',
+        label: 'Turmas',
+        permissions: ['classes.read'],
+        badge: 'waitlisted',
       },
       { href: '/admin/cursos', icon: 'school', label: 'Cursos', permissions: ['courses.manage'] },
     ],
@@ -149,3 +177,27 @@ export const ADMIN_NAV: { group: string; items: NavItem[] }[] = [
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 export const MAX_IMAGE_MB = 10;
 export const PAGE_SIZE = 15;
+
+export const CLASS_STATUS: Record<string, StatusMeta> = {
+  ABERTA: { label: 'Inscrições abertas', tone: 'success', icon: 'how_to_reg' },
+  FECHADA: { label: 'Fechada', tone: 'neutral', icon: 'lock' },
+  EM_CURSO: { label: 'Em curso', tone: 'info', icon: 'play_circle' },
+  CONCLUIDA: { label: 'Concluída', tone: 'brand', icon: 'task_alt' },
+  CANCELADA: { label: 'Cancelada', tone: 'danger', icon: 'block' },
+};
+
+export const SHIFTS: Record<string, string> = {
+  MANHA: 'Manhã',
+  TARDE: 'Tarde',
+  NOITE: 'Noite',
+  FIM_DE_SEMANA: 'Fim de semana',
+};
+
+export const WAITLIST: StatusMeta = { label: 'Lista de espera', tone: 'warning', icon: 'schedule' };
+
+/** Colour of an occupancy bar: green while there is room, amber when almost full, red when full. */
+export function occupancyTone(taken: number, capacity: number): Tone {
+  if (taken >= capacity) return 'danger';
+  if (taken / capacity >= 0.8) return 'warning';
+  return 'success';
+}

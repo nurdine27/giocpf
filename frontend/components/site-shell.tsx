@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Icon } from './icon';
+import { CookiePreferencesLink } from './cookie-consent';
 import { NAV_LINKS, whatsappLink, type SiteInfo } from '@/lib/site';
 
 function Brand({ site, light }: { site: SiteInfo; light?: boolean }) {
@@ -110,6 +111,7 @@ export function Footer({ site }: { site: SiteInfo }) {
           © {new Date().getFullYear()} {site.name}.
         </span>
         <Link href="/politica-de-privacidade">Política de Privacidade</Link>
+        <CookiePreferencesLink />
         <Link href="/admin/login">Área administrativa</Link>
       </div>
     </footer>

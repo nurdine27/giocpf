@@ -66,7 +66,11 @@ function AdminShell({ children }: { children: React.ReactNode }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [me, setMe] = useState<Identity | null>(null);
-  const [badges, setBadges] = useState<Badges>({ pendingRegistrations: 0, unreadMessages: 0 });
+  const [badges, setBadges] = useState<Badges>({
+    pendingRegistrations: 0,
+    unreadMessages: 0,
+    waitlisted: 0,
+  });
   const [collapsed, setCollapsed] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('gio-sidebar') === 'collapsed',
   );

@@ -14,8 +14,14 @@ import {
   useResource,
 } from './ui';
 import { apiFetch } from '@/lib/api';
-import { MESSAGE_STATUS, REGISTRATION_STATUS } from '@/lib/constants';
-import { formatDateTime, formatNumber, percentChange, relativeTime } from '@/lib/format';
+import { MESSAGE_STATUS, REGISTRATION_STATUS, occupancyTone } from '@/lib/constants';
+import {
+  formatDate,
+  formatDateTime,
+  formatNumber,
+  percentChange,
+  relativeTime,
+} from '@/lib/format';
 
 type Point = { month: string; total: number };
 type Dashboard = {
@@ -43,6 +49,21 @@ type Dashboard = {
     recent: { id: string; name: string; subject: string; status: string; createdAt: string }[];
   };
   courses: { total: number; open: number };
+  classes: {
+    open: number;
+    capacity: number;
+    occupied: number;
+    waitlisted: number;
+    top: {
+      id: string;
+      code: string;
+      name: string;
+      capacity: number;
+      seatsTaken: number;
+      campus: { name: string };
+      period: { startsAt: string };
+    }[];
+  };
   content: {
     newsPublished: number;
     newsDrafts: number;
@@ -116,6 +137,13 @@ function DashboardBody({
       text: 'Analise e responda aos candidatos.',
       href: '/admin/inscricoes?status=PENDENTE',
     },
+    data.classes.waitlisted > 0 && {
+      icon: 'schedule',
+      tone: 'warning',
+      title: `${data.classes.waitlisted} ${data.classes.waitlisted === 1 ? 'candidato em lista de espera' : 'candidatos em lista de espera'}`,
+      text: 'Não há vagas nas turmas abertas. Crie uma turma ou aumente as vagas.',
+      href: '/admin/turmas',
+    },
     data.messages.unread > 0 && {
       icon: 'mark_email_unread',
       tone: 'brand',
@@ -159,11 +187,12 @@ function DashboardBody({
           href={canRegistrations ? '/admin/inscricoes?status=PENDENTE' : undefined}
         />
         <StatCard
-          label="Taxa de aceitação"
-          value={`${acceptance}%`}
-          icon="verified"
+          label="Ocupação das turmas"
+          value={`${data.classes.capacity ? Math.round((data.classes.occupied / data.classes.capacity) * 100) : 0}%`}
+          icon="event_seat"
           tone="success"
-          hint={`${formatNumber(r.byStatus.ACEITE ?? 0)} candidatos aceites`}
+          hint={`${formatNumber(data.classes.occupied)} de ${formatNumber(data.classes.capacity)} vagas · ${acceptance}% aceites`}
+          href="/admin/turmas"
         />
         <StatCard
           label="Mensagens por ler"
@@ -191,7 +220,50 @@ function DashboardBody({
         </Panel>
       </div>
 
-      <div className="dash-row">
+      <div className="dash-row dash-row-half">
+        <Panel
+          title="Turmas abertas"
+          icon="groups"
+          actions={
+            <Link className="link-more" href="/admin/turmas">
+              Gerir
+            </Link>
+          }
+        >
+          {data.classes.top.length ? (
+            <ul className="occupancy-list">
+              {data.classes.top.map((c) => {
+                const tone = occupancyTone(c.seatsTaken, c.capacity);
+                return (
+                  <li key={c.id}>
+                    <div className="bar-list-row">
+                      <span>
+                        {c.name}
+                        <small className="cell-sub">
+                          {c.campus.name} · início {formatDate(c.period.startsAt)}
+                        </small>
+                      </span>
+                      <strong>
+                        {c.seatsTaken}/{c.capacity}
+                      </strong>
+                    </div>
+                    <span className={`occupancy-bar tone-${tone}`}>
+                      <span
+                        style={{ width: `${Math.min(100, (c.seatsTaken / c.capacity) * 100)}%` }}
+                      />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <EmptyState
+              icon="groups"
+              title="Sem turmas abertas"
+              description="Crie turmas para receber inscrições."
+            />
+          )}
+        </Panel>
         <Panel title="Cursos mais procurados" icon="leaderboard">
           <BarList
             items={r.topCourses.map((c) => ({ label: c.name, value: c.total }))}

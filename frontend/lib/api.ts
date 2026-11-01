@@ -70,3 +70,24 @@ export function uploadImages(files: File[], folder: UploadFolder) {
     body: form,
   });
 }
+
+/** Downloads a file produced by the API (e.g. CSV exports) using the session cookie. */
+export async function downloadFile(path: string, filename: string): Promise<string> {
+  const response = await fetch(`${API_BASE}${path}`, { credentials: 'include' }).catch(() => null);
+  if (!response?.ok) {
+    const data = await response?.json().catch(() => null);
+    throw new ApiError(
+      typeof data?.message === 'string' ? data.message : FALLBACK,
+      response?.status ?? 0,
+    );
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const serverName = /filename="?([^";]+)"?/.exec(disposition)?.[1];
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = serverName ?? filename;
+  link.click();
+  URL.revokeObjectURL(url);
+  return link.download;
+}

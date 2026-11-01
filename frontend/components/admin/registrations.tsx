@@ -22,7 +22,7 @@ import {
   ListCard,
 } from './ui';
 import { apiFetch, errorMessage } from '@/lib/api';
-import { PAGE_SIZE, REGISTRATION_STATUS } from '@/lib/constants';
+import { PAGE_SIZE, REGISTRATION_STATUS, SHIFTS, WAITLIST } from '@/lib/constants';
 import { formatDate, formatDateTime, relativeTime } from '@/lib/format';
 
 type Row = {
@@ -33,7 +33,10 @@ type Row = {
   courseName: string;
   province: string;
   status: string;
+  waitlisted: boolean;
   createdAt: string;
+  campus: { name: string } | null;
+  classGroup: { id: string; code: string; name: string } | null;
 };
 type ListResult = { data: Row[]; meta: { page: number; total: number; totalPages: number } };
 
@@ -68,7 +71,13 @@ export function RegistrationList() {
   const { can, refreshBadges } = useAdmin();
   const confirmStatus = useStatusChange();
   const [status, setStatus] = useState(params.get('status') ?? '');
+  const [campusId, setCampusId] = useState('');
+  const [waitlisted, setWaitlisted] = useState(params.get('espera') === '1');
   const [q, setQ] = useState('');
+  const campuses = useResource(
+    () => apiFetch<{ campuses: { id: string; name: string }[] }>('/registrations/form-options'),
+    [],
+  );
   const [page, setPage] = useState(1);
   const canManage = can('registrations.manage');
 
@@ -76,8 +85,10 @@ export function RegistrationList() {
     const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
     if (q) qs.set('q', q);
     if (status) qs.set('status', status);
+    if (campusId) qs.set('campusId', campusId);
+    if (waitlisted) qs.set('waitlisted', 'true');
     return apiFetch<ListResult>(`/admin/registrations?${qs}`);
-  }, [page, q, status]);
+  }, [page, q, status, campusId, waitlisted]);
 
   const onSearch = useCallback((value: string) => {
     setPage(1);
@@ -125,7 +136,35 @@ export function RegistrationList() {
               })),
             ]}
           />
-          <SearchField value={q} onChange={onSearch} placeholder="Nome, referência ou telefone" />
+          <div className="filter-selects">
+            <select
+              value={campusId}
+              onChange={(e) => {
+                setPage(1);
+                setCampusId(e.target.value);
+              }}
+              aria-label="Pólo"
+            >
+              <option value="">Todos os pólos</option>
+              {campuses.data?.campuses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={`btn btn-sm ${waitlisted ? 'btn-primary' : 'btn-ghost'}`}
+              aria-pressed={waitlisted}
+              onClick={() => {
+                setPage(1);
+                setWaitlisted(!waitlisted);
+              }}
+            >
+              <Icon name="schedule" /> Lista de espera
+            </button>
+            <SearchField value={q} onChange={onSearch} placeholder="Nome, referência ou telefone" />
+          </div>
         </div>
         {error && <ErrorState message={error} onRetry={reload} />}
         {loading && !data && <Skeleton rows={6} />}
@@ -143,8 +182,8 @@ export function RegistrationList() {
                 <thead>
                   <tr>
                     <th>Candidato</th>
-                    <th>Curso</th>
-                    <th className="hide-sm">Província</th>
+                    <th>Curso e turma</th>
+                    <th className="hide-sm">Pólo</th>
                     <th className="hide-sm">Data</th>
                     <th>Estado</th>
                   </tr>
@@ -168,8 +207,19 @@ export function RegistrationList() {
                           {row.reference} · {row.phone}
                         </small>
                       </td>
-                      <td>{row.courseName}</td>
-                      <td className="hide-sm">{row.province}</td>
+                      <td>
+                        {row.courseName}
+                        <small className="cell-sub">
+                          {row.classGroup ? (
+                            row.classGroup.code
+                          ) : row.waitlisted ? (
+                            <span className="text-warning">Lista de espera</span>
+                          ) : (
+                            'Sem turma'
+                          )}
+                        </small>
+                      </td>
+                      <td className="hide-sm">{row.campus?.name ?? '—'}</td>
                       <td className="hide-sm" title={formatDateTime(row.createdAt)}>
                         {relativeTime(row.createdAt)}
                       </td>
@@ -203,11 +253,12 @@ export function RegistrationList() {
                   onOpen={() => router.push(`/admin/inscricoes/${row.id}`)}
                   media={<Avatar name={row.name} size={42} />}
                   title={row.name}
-                  subtitle={`${row.courseName} · ${relativeTime(row.createdAt)}`}
+                  subtitle={`${row.courseName} · ${row.campus?.name ?? ''} · ${relativeTime(row.createdAt)}`}
                   meta={
                     <>
                       <StatusBadge meta={REGISTRATION_STATUS[row.status]} />
-                      <span>{row.reference}</span>
+                      {row.waitlisted && <StatusBadge meta={WAITLIST} />}
+                      {row.classGroup && <span>{row.classGroup.code}</span>}
                     </>
                   }
                   actions={[
@@ -255,12 +306,40 @@ export function RegistrationList() {
   );
 }
 
+type ClassOption = {
+  id: string;
+  name: string;
+  shift: string;
+  campus: { id: string; name: string };
+  period: { name: string; startsAt: string };
+  capacity: number;
+  seatsLeft: number;
+};
 type Detail = Row & {
   email: string | null;
   age: number | null;
+  birthDate: string | null;
+  gender: string | null;
+  documentType: string | null;
+  documentNumber: string | null;
+  educationLevel: string | null;
+  occupation: string | null;
+  address: string | null;
+  emergencyName: string | null;
+  emergencyPhone: string | null;
+  referralSource: string | null;
   district: string;
   area: string;
   message: string | null;
+  campus: { id: string; name: string } | null;
+  classGroup:
+    | (ClassOption & {
+        code: string;
+        schedule: string;
+        period: { name: string; startsAt: string; endsAt: string | null };
+      })
+    | null;
+  classOptions: ClassOption[];
   updatedAt: string;
   notes: { id: string; body: string; createdAt: string; author: string }[];
 };
@@ -274,6 +353,7 @@ export function RegistrationDetail({ id }: { id: string }) {
     [id],
   );
   const [status, setStatus] = useState<string | null>(null);
+  const [classId, setClassId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -292,24 +372,33 @@ export function RegistrationDetail({ id }: { id: string }) {
   if (loading && !data) return <Skeleton rows={4} height={110} />;
   if (!data) return null;
   const nextStatus = status ?? data.status;
+  const currentClass = data.classGroup?.id ?? '';
+  const nextClass = classId ?? currentClass;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!data) return;
     if (nextStatus !== data.status && !(await confirmStatus(data.name, nextStatus))) return;
-    if (nextStatus === data.status && !note.trim()) {
-      toast.info('Altere o estado ou escreva uma nota.');
+    if (nextStatus === data.status && nextClass === currentClass && !note.trim()) {
+      toast.info('Altere o estado, a turma ou escreva uma nota.');
       return;
     }
     setBusy(true);
     try {
       await apiFetch(`/admin/registrations/${id}`, {
         method: 'PATCH',
-        body: { status: nextStatus, note },
+        body: {
+          status: nextStatus,
+          note,
+          ...(nextClass !== currentClass ? { classId: nextClass } : {}),
+        },
       });
-      toast.success(note.trim() ? 'Nota guardada e inscrição actualizada.' : 'Estado actualizado.');
+      toast.success(
+        note.trim() ? 'Nota guardada e inscrição actualizada.' : 'Inscrição actualizada.',
+      );
       setNote('');
       setStatus(null);
+      setClassId(null);
       await reload();
       void refreshBadges();
     } catch (err) {
@@ -350,10 +439,36 @@ export function RegistrationDetail({ id }: { id: string }) {
         'Não indicado'
       ),
     ],
-    ['cake', 'Idade', data.age ? `${data.age} anos` : 'Não indicada'],
-    ['location_on', 'Localização', `${data.district}, ${data.province}`],
-    ['school', 'Curso', data.courseName],
-    ['category', 'Área', data.area],
+    [
+      'cake',
+      'Data de nascimento',
+      data.birthDate
+        ? `${formatDate(data.birthDate)} (${data.age} anos)`
+        : data.age
+          ? `${data.age} anos`
+          : 'Não indicada',
+    ],
+    ['wc', 'Género', data.gender ?? '—'],
+    [
+      'badge',
+      'Documento',
+      data.documentNumber ? `${data.documentType ?? ''} ${data.documentNumber}`.trim() : '—',
+    ],
+    ['history_edu', 'Escolaridade', data.educationLevel ?? '—'],
+    ['work', 'Ocupação', data.occupation ?? '—'],
+    [
+      'location_on',
+      'Residência',
+      [data.address, data.district, data.province].filter(Boolean).join(', '),
+    ],
+    [
+      'emergency',
+      'Contacto de emergência',
+      data.emergencyName || data.emergencyPhone
+        ? [data.emergencyName, data.emergencyPhone].filter(Boolean).join(' · ')
+        : '—',
+    ],
+    ['campaign', 'Como soube do GIO', data.referralSource ?? '—'],
     ['calendar_today', 'Submetida em', formatDateTime(data.createdAt)],
   ];
 
@@ -382,6 +497,54 @@ export function RegistrationDetail({ id }: { id: string }) {
                   <dd>{value}</dd>
                 </div>
               ))}
+            </dl>
+          </Panel>
+          <Panel title="Formação" icon="school">
+            <dl className="info-list">
+              <div>
+                <dt>
+                  <Icon name="school" /> Curso
+                </dt>
+                <dd>
+                  {data.courseName}
+                  <small className="cell-sub">{data.area}</small>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="location_city" /> Pólo
+                </dt>
+                <dd>{data.campus?.name ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="groups" /> Turma
+                </dt>
+                <dd>
+                  {data.classGroup ? (
+                    <>
+                      {data.classGroup.code} · {SHIFTS[data.classGroup.shift]}
+                      {data.classGroup.schedule && (
+                        <small className="cell-sub">{data.classGroup.schedule}</small>
+                      )}
+                    </>
+                  ) : data.waitlisted ? (
+                    <StatusBadge meta={WAITLIST} />
+                  ) : (
+                    'Sem turma'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="event" /> Início das aulas
+                </dt>
+                <dd>
+                  {data.classGroup
+                    ? `${formatDate(data.classGroup.period.startsAt)} (${data.classGroup.period.name})`
+                    : '—'}
+                </dd>
+              </div>
             </dl>
           </Panel>
           {data.message && (
@@ -427,6 +590,29 @@ export function RegistrationDetail({ id }: { id: string }) {
                   </label>
                 ))}
               </div>
+              <Field
+                label="Turma"
+                hint={
+                  data.classOptions.length
+                    ? 'Só aparecem turmas abertas deste curso com vagas.'
+                    : 'Não há turmas abertas com vagas para este curso.'
+                }
+              >
+                <select value={nextClass} onChange={(e) => setClassId(e.target.value)}>
+                  <option value="">Lista de espera / sem turma</option>
+                  {data.classGroup && (
+                    <option value={data.classGroup.id}>{data.classGroup.code} (actual)</option>
+                  )}
+                  {data.classOptions
+                    .filter((c) => c.id !== data.classGroup?.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id} disabled={c.seatsLeft === 0}>
+                        {c.campus.name} · {SHIFTS[c.shift]} · {formatDate(c.period.startsAt)} —{' '}
+                        {c.seatsLeft} vagas
+                      </option>
+                    ))}
+                </select>
+              </Field>
               <Field label="Nota interna" hint="Visível apenas para a equipa.">
                 <textarea
                   value={note}
