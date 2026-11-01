@@ -1,12 +1,4 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Post,
-  Req,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsBoolean,
@@ -20,12 +12,12 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { createHash } from 'node:crypto';
-import type { Request } from 'express';
 import { Transform, Type } from 'class-transformer';
 import { PrismaService } from './prisma.service';
 import { areas, provinces } from './catalog';
 import rules from './registration-rules.cjs';
+import { institutionEmail, sendEmailInBackground } from './email';
+import { registrationNotificationEmail, registrationReceivedEmail } from './email-templates';
 class RegistrationDto {
   @IsUUID() submissionKey!: string;
   @IsString() @MinLength(3) @MaxLength(120) name!: string;
@@ -88,7 +80,7 @@ export class RegistrationController {
     validate(() => rules.assertEnrollmentOpen(match));
     const reference = rules.createReference();
     try {
-      return await this.db.registration.create({
+      const created = await this.db.registration.create({
         data: {
           reference,
           submissionKey: d.submissionKey,
@@ -104,70 +96,39 @@ export class RegistrationController {
           message: d.message?.trim() || null,
           consentedAt: new Date(),
         },
-        select: { reference: true, status: true, createdAt: true },
       });
+      void this.notify(created);
+      return { reference: created.reference, status: created.status, createdAt: created.createdAt };
     } catch {
       throw new BadRequestException('Não foi possível guardar a inscrição. Tente novamente.');
     }
   }
-  @Get() async list(@Req() req: Request) {
-    await requirePermission(this.db, req, 'registrations.read');
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const q = String(req.query.q ?? '').slice(0, 100);
-    const status = String(req.query.status ?? '');
-    const where: Record<string, unknown> = {};
-    if (q)
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { reference: { contains: q, mode: 'insensitive' } },
-      ];
-    if (['PENDENTE', 'EM_ANALISE', 'ACEITE', 'RECUSADA'].includes(status)) where.status = status;
-    return {
-      items: await this.db.registration.findMany({
-        where: where as never,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * 20,
-        take: 20,
-        select: {
-          id: true,
-          reference: true,
-          name: true,
-          phone: true,
-          courseName: true,
-          status: true,
-          createdAt: true,
+
+  /** Confirmation to the candidate (when an e-mail was given) and an alert to the institution inbox. */
+  private async notify(r: Parameters<typeof registrationNotificationEmail>[0]) {
+    if (r.email)
+      sendEmailInBackground(
+        {
+          to: r.email,
+          ...registrationReceivedEmail(r),
+          tags: { type: 'registration_received' },
+          idempotencyKey: `registration-${r.id}`,
         },
-      }),
-      page,
-    };
+        `Confirmação da inscrição ${r.reference}`,
+      );
+    const to = await institutionEmail(this.db);
+    if (to)
+      sendEmailInBackground(
+        {
+          to,
+          ...registrationNotificationEmail(r),
+          replyTo: r.email ?? undefined,
+          tags: { type: 'registration_notification' },
+          idempotencyKey: `registration-admin-${r.id}`,
+        },
+        `Aviso da inscrição ${r.reference}`,
+      );
   }
-}
-export async function requireAdmin(db: PrismaService, req: Request) {
-  const token = req.cookies?.gio_session as string | undefined;
-  if (!token) throw new UnauthorizedException();
-  if (process.env.APP_URL && req.get('origin') && req.get('origin') !== process.env.APP_URL)
-    throw new UnauthorizedException();
-  const id = createHash('sha256').update(token).digest('hex');
-  const session = await db.adminSession.findUnique({ where: { id }, include: { admin: true } });
-  if (!session || session.expiresAt < new Date()) throw new UnauthorizedException();
-  return session.admin;
-}
-export const ADMIN_PERMISSIONS = ['dashboard.read','registrations.read','registrations.manage','courses.manage','news.manage','events.manage','gallery.manage','users.manage','messages.read','messages.manage','messages.reply','settings.manage'] as const;
-export async function requirePermission(db: PrismaService, req: Request, permission: typeof ADMIN_PERMISSIONS[number]) {
-  const admin = await requireAdmin(db, req);
-  if (!admin.isSuperAdmin && !admin.permissions.includes(permission)) {
-    const { ForbiddenException } = await import('@nestjs/common');
-    throw new ForbiddenException('Não tem permissão para esta acção.');
-  }
-  return admin;
-}
-export async function requireAnyPermission(db: PrismaService, req: Request, permissions: (typeof ADMIN_PERMISSIONS)[number][]) {
-  const admin = await requireAdmin(db, req);
-  if (!admin.isSuperAdmin && !permissions.some((p) => admin.permissions.includes(p))) {
-    const { ForbiddenException } = await import('@nestjs/common');
-    throw new ForbiddenException('Não tem permissão para esta acção.');
-  }
-  return admin;
 }
 @Controller('courses')
 export class PublicCoursesController {
@@ -185,6 +146,7 @@ export class PublicCoursesController {
         duration: true,
         requirements: true,
         enrollmentOpen: true,
+        imageUrl: true,
       },
     });
   }

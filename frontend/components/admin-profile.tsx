@@ -1,9 +1,0 @@
-'use client';
-import { API_BASE } from '@/lib/api-url';
-import {useEffect,useState} from 'react';
-import {FlashMessage} from './admin-ui';
-const api=API_BASE;
-export function AdminProfile(){const [d,setD]=useState({email:'',displayName:'',phone:'',profilePhotoUrl:''});const [flash,setFlash]=useState('');const [error,setError]=useState('');useEffect(()=>{fetch(`${api}/admin/profile`,{credentials:'include'}).then(r=>{if(!r.ok)throw Error();return r.json()}).then(x=>setD({email:x.email,displayName:x.displayName||'',phone:x.phone||'',profilePhotoUrl:x.profilePhotoUrl||''})).catch(()=>setError('Não foi possível carregar o perfil.'));},[]);async function save(e:React.FormEvent){e.preventDefault();try{const r=await fetch(`${api}/admin/profile`,{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({displayName:d.displayName,phone:d.phone,profilePhotoUrl:d.profilePhotoUrl})});if(!r.ok)throw Error();setFlash('Perfil actualizado.');}catch{setError('Não foi possível guardar o perfil.');}}return <main id="conteudo" className="admin-shell"><div className="page-heading"><div className="section-kicker">A MINHA CONTA</div><h1>Perfil administrativo</h1></div>{flash&&<FlashMessage>{flash}</FlashMessage>}{error&&<FlashMessage type="error">{error}</FlashMessage>}<form className="form-card profile-form" onSubmit={save}><label className="field">E-mail da conta<input value={d.email} disabled/></label><label className="field">Nome<input value={d.displayName} onChange={e=>setD({...d,displayName:e.target.value})}/></label><label className="field">Telefone<input value={d.phone} onChange={e=>setD({...d,phone:e.target.value})}/></label><label className="field">Fotografia de perfil (URL segura)<input type="url" value={d.profilePhotoUrl} onChange={e=>setD({...d,profilePhotoUrl:e.target.value})}/></label><button className="button button-primary">Guardar perfil</button></form></main>}
-
-
-

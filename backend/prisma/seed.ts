@@ -3,6 +3,7 @@ dotenv.config();
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { areas } from '../src/catalog';
+import { SYSTEM_ROLES } from '../src/constants';
 const db = new PrismaClient();
 async function main() {
   const adminEmail = 'admin@gmail.com';
@@ -12,6 +13,12 @@ async function main() {
     update: { isSuperAdmin: true },
     create: { email: adminEmail, passwordHash: adminPasswordHash, isSuperAdmin: true },
   });
+  for (const role of SYSTEM_ROLES)
+    await db.role.upsert({
+      where: { name: role.name },
+      create: { ...role, isSystem: true },
+      update: { description: role.description, permissions: role.permissions, isSystem: true },
+    });
   for (const a of areas)
     for (const name of a.courses) {
       const slug = name

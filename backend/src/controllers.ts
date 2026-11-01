@@ -2,15 +2,16 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
-  Post,
+  NotFoundException,
+  Param,
   Patch,
+  Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
-  Param,
-  NotFoundException,
-  Query,
 } from '@nestjs/common';
 import {
   IsBoolean,
@@ -18,72 +19,150 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Length,
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { createHash, randomBytes } from 'node:crypto';
+import { Transform } from 'class-transformer';
+import { randomBytes } from 'node:crypto';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import nodemailer from 'nodemailer';
-import { PrismaService } from './prisma.service';
-import { requireAdmin, requirePermission, ADMIN_PERMISSIONS } from './registration.controller';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from './prisma.service';
+import { audit, can, hashToken, requireAdmin, requirePermission } from './auth';
+import {
+  OTP_TTL_MS,
+  REGISTRATION_STATUSES,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  type RegistrationStatus,
+} from './constants';
+import { areas } from './catalog';
+import { assertImageUrl, deleteImage } from './cloudinary';
+import { sendEmail } from './email';
+import { passwordResetEmail } from './email-templates';
+
+const emptyToNull = ({ value }: { value: unknown }) => (value === '' ? null : value);
+const AREA_NAMES = areas.map((a) => a.name);
+
 class LoginDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(8) @MaxLength(200) password!: string;
 }
-class ForgotDto { @IsEmail() email!: string; }
-class ResetDto { @IsEmail() email!: string; @IsString() @MinLength(6) @MaxLength(6) code!: string; @IsString() @MinLength(8) @MaxLength(200) password!: string; }
-class CreateAdminDto { @IsEmail() email!: string; @IsString() @MinLength(12) @MaxLength(200) password!: string; @IsOptional() @IsString({each:true}) permissions?: string[]; }
+class ForgotDto {
+  @IsEmail() email!: string;
+}
+class ResetDto {
+  @IsEmail() email!: string;
+  @IsString() @Length(6, 6) code!: string;
+  @IsString() @MinLength(8) @MaxLength(200) password!: string;
+}
 class StatusDto {
-  @IsIn(['PENDENTE', 'EM_ANALISE', 'ACEITE', 'RECUSADA']) status!: string;
+  @IsIn(REGISTRATION_STATUSES) status!: RegistrationStatus;
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
 }
 class CourseDto {
   @IsOptional() @IsString() @MinLength(3) @MaxLength(120) name?: string;
-  @IsOptional() @IsString() area?: string;
+  @IsOptional()
+  @IsIn(AREA_NAMES, { message: 'Seleccione uma área de formação válida.' })
+  area?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsBoolean() published?: boolean;
   @IsOptional() @IsBoolean() enrollmentOpen?: boolean;
-  @IsOptional() @IsString() duration?: string;
-  @IsOptional() @IsString() requirements?: string;
+  @IsOptional() @Transform(emptyToNull) @IsString() @MaxLength(120) duration?: string | null;
+  @IsOptional() @Transform(emptyToNull) @IsString() @MaxLength(500) requirements?: string | null;
+  @IsOptional() @Transform(emptyToNull) @IsString() @MaxLength(2000) imageUrl?: string | null;
+  @IsOptional() @Transform(emptyToNull) @IsString() @MaxLength(300) imagePublicId?: string | null;
 }
+
+function slugify(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+/** Returns the last `count` months as YYYY-MM keys, oldest first. */
+function lastMonths(count: number) {
+  const now = new Date();
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (count - 1 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
+function fillMonths(months: string[], rows: { month: string; total: number }[]) {
+  return months.map((month) => ({ month, total: rows.find((r) => r.month === month)?.total ?? 0 }));
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private db: PrismaService) {}
-  private async sendOtp(to: string, code: string) {
-    const from = process.env.MAIL_FROM;
-    if (process.env.RESEND_API_KEY) {
-      const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to, subject: 'Código de recuperação — GIO CPF', html: `<p>O seu código de recuperação é <strong>${code}</strong>. Expira em 10 minutos.</p>` }) });
-      if (!response.ok) throw new BadRequestException('Não foi possível enviar o e-mail de recuperação.');
-      return;
-    }
-    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_PORT && from) {
-      const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
-      await transport.sendMail({ from, to, subject: 'Código de recuperação — GIO CPF', text: `O seu código de recuperação é ${code}. Expira em 10 minutos.` }); return;
-    }
-    throw new BadRequestException('O serviço de envio de e-mail ainda não está configurado.');
-  }
-  @Post('password/forgot') @Throttle({ default: { limit: 3, ttl: 60000 } }) async forgot(@Body() d: ForgotDto) {
+
+  @Post('password/forgot') @Throttle({ default: { limit: 3, ttl: 60000 } }) async forgot(
+    @Body() d: ForgotDto,
+  ) {
+    const reply = { ok: true, message: 'Se o endereço estiver registado, receberá um código.' };
     const admin = await this.db.adminUser.findUnique({ where: { email: d.email.toLowerCase() } });
-    if (!admin) return { ok: true, message: 'Se o endereço estiver registado, receberá um código.' };
+    if (!admin || !admin.active) return reply;
     const code = String(randomBytes(4).readUInt32BE(0) % 1000000).padStart(6, '0');
     await this.db.adminPasswordOtp.deleteMany({ where: { adminId: admin.id } });
-    await this.db.adminPasswordOtp.create({ data: { adminId: admin.id, codeHash: await bcrypt.hash(code, 10), expiresAt: new Date(Date.now() + 10 * 60 * 1000) } });
-    await this.sendOtp(admin.email, code); return { ok: true, message: 'Se o endereço estiver registado, receberá um código.' };
-  }
-  @Post('password/reset') @Throttle({ default: { limit: 5, ttl: 60000 } }) async resetPassword(@Body() d: ResetDto) {
-    const admin = await this.db.adminUser.findUnique({ where: { email: d.email.toLowerCase() } });
-    if (!admin) throw new UnauthorizedException('Código inválido ou expirado.');
-    const otp = await this.db.adminPasswordOtp.findFirst({ where: { adminId: admin.id }, orderBy: { createdAt: 'desc' } });
-    if (!otp || otp.expiresAt < new Date() || otp.attempts >= 5 || !(await bcrypt.compare(d.code, otp.codeHash))) {
-      if (otp) await this.db.adminPasswordOtp.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-      throw new UnauthorizedException('Código inválido ou expirado.');
+    await this.db.adminPasswordOtp.create({
+      data: {
+        adminId: admin.id,
+        codeHash: await bcrypt.hash(code, 10),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      },
+    });
+    try {
+      await sendEmail({
+        to: admin.email,
+        ...passwordResetEmail(code),
+        tags: { type: 'password_reset' },
+      });
+    } catch {
+      throw new BadRequestException('O serviço de envio de e-mail não está disponível.');
     }
-    await this.db.$transaction([this.db.adminUser.update({ where: { id: admin.id }, data: { passwordHash: await bcrypt.hash(d.password, 12) } }), this.db.adminPasswordOtp.deleteMany({ where: { adminId: admin.id } }), this.db.adminSession.deleteMany({ where: { adminId: admin.id } })]);
-    return { ok: true };
+    return reply;
   }
+
+  @Post('password/reset') @Throttle({ default: { limit: 5, ttl: 60000 } }) async resetPassword(
+    @Body() d: ResetDto,
+  ) {
+    const invalid = new UnauthorizedException('Código inválido ou expirado.');
+    const admin = await this.db.adminUser.findUnique({ where: { email: d.email.toLowerCase() } });
+    if (!admin) throw invalid;
+    const otp = await this.db.adminPasswordOtp.findFirst({
+      where: { adminId: admin.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (
+      !otp ||
+      otp.expiresAt < new Date() ||
+      otp.attempts >= 5 ||
+      !(await bcrypt.compare(d.code, otp.codeHash))
+    ) {
+      if (otp)
+        await this.db.adminPasswordOtp.update({
+          where: { id: otp.id },
+          data: { attempts: { increment: 1 } },
+        });
+      throw invalid;
+    }
+    await this.db.$transaction([
+      this.db.adminUser.update({
+        where: { id: admin.id },
+        data: { passwordHash: await bcrypt.hash(d.password, 12) },
+      }),
+      this.db.adminPasswordOtp.deleteMany({ where: { adminId: admin.id } }),
+      this.db.adminSession.deleteMany({ where: { adminId: admin.id } }),
+    ]);
+    return { ok: true, message: 'Palavra-passe actualizada. Já pode iniciar sessão.' };
+  }
+
   @Post('login') @Throttle({ default: { limit: 5, ttl: 60000 } }) async login(
     @Body() d: LoginDto,
     @Res({ passthrough: true }) res: Response,
@@ -91,76 +170,229 @@ export class AuthController {
     const admin = await this.db.adminUser.findUnique({ where: { email: d.email.toLowerCase() } });
     if (!admin || !(await bcrypt.compare(d.password, admin.passwordHash)))
       throw new UnauthorizedException('E-mail ou palavra-passe incorrectos.');
+    if (!admin.active)
+      throw new UnauthorizedException('Esta conta está desactivada. Contacte o administrador.');
     const token = randomBytes(32).toString('hex');
-    const id = createHash('sha256').update(token).digest('hex');
-    await this.db.adminSession.create({
-      data: { id, adminId: admin.id, expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000) },
-    });
-    res.cookie('gio_session', token, {
+    await this.db.$transaction([
+      this.db.adminSession.create({
+        data: {
+          id: hashToken(token),
+          adminId: admin.id,
+          expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        },
+      }),
+      this.db.adminUser.update({ where: { id: admin.id }, data: { lastLoginAt: new Date() } }),
+      this.db.adminSession.deleteMany({ where: { expiresAt: { lt: new Date() } } }),
+    ]);
+    res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
-      maxAge: 8 * 60 * 60 * 1000,
+      maxAge: SESSION_TTL_MS,
     });
     return { email: admin.email };
   }
+
   @Post('logout') async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const token = req.cookies?.gio_session as string | undefined;
-    if (token)
-      await this.db.adminSession.deleteMany({
-        where: { id: createHash('sha256').update(token).digest('hex') },
-      });
-    res.clearCookie('gio_session', { path: '/' });
+    const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
+    if (token) await this.db.adminSession.deleteMany({ where: { id: hashToken(token) } });
+    res.clearCookie(SESSION_COOKIE, { path: '/' });
     return { ok: true };
   }
+
   @Get('me') async me(@Req() req: Request) {
     const a = await requireAdmin(this.db, req);
-    return { email: a.email, displayName: a.displayName, permissions: a.permissions, isSuperAdmin: a.isSuperAdmin };
+    return {
+      id: a.id,
+      email: a.email,
+      displayName: a.displayName,
+      profilePhotoUrl: a.profilePhotoUrl,
+      isSuperAdmin: a.isSuperAdmin,
+      role: a.role ? { id: a.role.id, name: a.role.name } : null,
+      permissions: a.effectivePermissions,
+    };
   }
 }
+
 @Controller('admin')
 export class AdminController {
   constructor(private db: PrismaService) {}
-  @Get('admin-users') async adminUsers(@Req() req: Request,@Query('page') page='1',@Query('limit') limit='10') { await requirePermission(this.db, req, 'users.manage'); const p=Math.max(1,Number(page)||1),n=Math.max(1,Math.min(50,Number(limit)||10));const [data,total]=await Promise.all([this.db.adminUser.findMany({ select: { id:true,email:true,isSuperAdmin:true,permissions:true,createdAt:true }, orderBy: { createdAt:'asc' },skip:(p-1)*n,take:n }),this.db.adminUser.count()]);return {data,meta:{page:p,limit:n,total,totalPages:Math.ceil(total/n)}}; }
-  @Post('admin-users') async createAdmin(@Req() req: Request, @Body() d: CreateAdminDto) { const actor = await requirePermission(this.db, req, 'users.manage'); const permissions = Array.isArray(d.permissions) ? [...new Set(d.permissions)].filter((p): p is typeof ADMIN_PERMISSIONS[number] => (ADMIN_PERMISSIONS as readonly string[]).includes(p)) : []; if (permissions.length !== (d.permissions ?? []).length) throw new BadRequestException('Lista de permissões inválida.'); const row = await this.db.adminUser.create({ data: { email:d.email.toLowerCase(),passwordHash:await bcrypt.hash(d.password,12),permissions }, select:{id:true,email:true,permissions:true,createdAt:true} }); await this.db.auditLog.create({data:{adminId:actor.id,action:'ADMIN_CREATED',targetId:row.id}}); return row; }
+
+  /** Lightweight counters used by the sidebar badges. */
+  @Get('badges') async badges(@Req() req: Request) {
+    const a = await requireAdmin(this.db, req);
+    const [pendingRegistrations, unreadMessages] = await Promise.all([
+      can(a, 'registrations.read')
+        ? this.db.registration.count({ where: { status: 'PENDENTE' } })
+        : 0,
+      can(a, 'messages.read') ? this.db.contactMessage.count({ where: { status: 'NAO_LIDA' } }) : 0,
+    ]);
+    return { pendingRegistrations, unreadMessages };
+  }
+
   @Get('dashboard') async dashboard(@Req() req: Request) {
     await requirePermission(this.db, req, 'dashboard.read');
-    const [total, pending, review, accepted, rejected, courses,newsTotal,newsPublished,newsDrafts,eventsTotal,eventsUpcoming,eventsPast,albumsTotal,photosTotal,messagesTotal,messagesUnread] = await Promise.all([
+    const months = lastMonths(6);
+    const from = new Date(`${months[0]}-01T00:00:00`);
+    const monthStart = new Date(`${months[months.length - 1]}-01T00:00:00`);
+    const previousMonthStart = new Date(`${months[months.length - 2]}-01T00:00:00`);
+
+    const [
+      registrationsByStatus,
+      registrationsTotal,
+      registrationsThisMonth,
+      registrationsLastMonth,
+      registrationsTrend,
+      messagesTrend,
+      topCourses,
+      courses,
+      openCourses,
+      newsPublished,
+      newsDrafts,
+      eventsUpcoming,
+      albums,
+      photos,
+      messagesByStatus,
+      recentRegistrations,
+      recentMessages,
+      nextEvents,
+    ] = await Promise.all([
+      this.db.registration.groupBy({ by: ['status'], _count: { _all: true } }),
       this.db.registration.count(),
-      this.db.registration.count({ where: { status: 'PENDENTE' } }),
-      this.db.registration.count({ where: { status: 'EM_ANALISE' } }),
-      this.db.registration.count({ where: { status: 'ACEITE' } }),
-      this.db.registration.count({ where: { status: 'RECUSADA' } }),
+      this.db.registration.count({ where: { createdAt: { gte: monthStart } } }),
+      this.db.registration.count({
+        where: { createdAt: { gte: previousMonthStart, lt: monthStart } },
+      }),
+      this.db.$queryRaw<{ month: string; total: number }[]>(
+        Prisma.sql`SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month, COUNT(*)::int AS total FROM "Registration" WHERE "createdAt" >= ${from} GROUP BY 1 ORDER BY 1`,
+      ),
+      this.db.$queryRaw<{ month: string; total: number }[]>(
+        Prisma.sql`SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month, COUNT(*)::int AS total FROM "ContactMessage" WHERE "createdAt" >= ${from} GROUP BY 1 ORDER BY 1`,
+      ),
+      this.db.registration.groupBy({
+        by: ['courseName'],
+        _count: { _all: true },
+        orderBy: { _count: { courseName: 'desc' } },
+        take: 5,
+      }),
       this.db.course.count(),
-      this.db.news.count(),this.db.news.count({where:{published:true}}),this.db.news.count({where:{published:false}}),
-      this.db.event.count(),this.db.event.count({where:{startsAt:{gte:new Date()},published:true,status:'AGENDADO'}}),this.db.event.count({where:{status:'REALIZADO'}}),
-      this.db.album.count(),this.db.photo.count(),this.db.contactMessage.count(),this.db.contactMessage.count({where:{status:'NAO_LIDA'}}),
+      this.db.course.count({ where: { published: true, enrollmentOpen: true } }),
+      this.db.news.count({ where: { published: true } }),
+      this.db.news.count({ where: { published: false } }),
+      this.db.event.count({ where: { startsAt: { gte: new Date() }, published: true } }),
+      this.db.album.count(),
+      this.db.photo.count(),
+      this.db.contactMessage.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.db.registration.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          reference: true,
+          name: true,
+          courseName: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+      this.db.contactMessage.findMany({
+        where: { status: { in: ['NAO_LIDA', 'EM_TRATAMENTO'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+        select: { id: true, name: true, subject: true, status: true, createdAt: true },
+      }),
+      this.db.event.findMany({
+        where: { startsAt: { gte: new Date() } },
+        orderBy: { startsAt: 'asc' },
+        take: 3,
+        select: { id: true, title: true, startsAt: true, location: true, published: true },
+      }),
     ]);
-    return { total, pending, review, accepted, rejected, courses, newsTotal, newsPublished, newsDrafts, eventsTotal, eventsUpcoming, eventsPast, albumsTotal, photosTotal, messagesTotal, messagesUnread };
+
+    const byStatus = Object.fromEntries(
+      REGISTRATION_STATUSES.map((s) => [
+        s,
+        registrationsByStatus.find((r) => r.status === s)?._count._all ?? 0,
+      ]),
+    ) as Record<RegistrationStatus, number>;
+    const messageCount = (status: string) =>
+      messagesByStatus.find((m) => m.status === status)?._count._all ?? 0;
+
+    return {
+      registrations: {
+        total: registrationsTotal,
+        thisMonth: registrationsThisMonth,
+        lastMonth: registrationsLastMonth,
+        byStatus,
+        trend: fillMonths(months, registrationsTrend),
+        topCourses: topCourses.map((c) => ({ name: c.courseName, total: c._count._all })),
+        recent: recentRegistrations,
+      },
+      messages: {
+        total: messagesByStatus.reduce((sum, m) => sum + m._count._all, 0),
+        unread: messageCount('NAO_LIDA'),
+        inProgress: messageCount('EM_TRATAMENTO'),
+        trend: fillMonths(months, messagesTrend),
+        recent: recentMessages,
+      },
+      courses: { total: courses, open: openCourses },
+      content: { newsPublished, newsDrafts, eventsUpcoming, albums, photos, nextEvents },
+    };
   }
-  @Get('dashboard/trends') async dashboardTrends(@Req() req: Request) {
-    await requirePermission(this.db, req, 'dashboard.read');
-    const from = new Date(); from.setMonth(from.getMonth() - 5); from.setDate(1); from.setHours(0,0,0,0);
-    const [publications,messages,categories] = await Promise.all([
-      this.db.$queryRaw<{month:string;total:number}[]>(Prisma.sql`SELECT to_char(date_trunc('month', "publishedAt"), 'YYYY-MM') AS month, COUNT(*)::int AS total FROM "News" WHERE "published"=true AND "publishedAt">=${from} GROUP BY date_trunc('month', "publishedAt") ORDER BY month`),
-      this.db.$queryRaw<{month:string;total:number}[]>(Prisma.sql`SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month, COUNT(*)::int AS total FROM "ContactMessage" WHERE "createdAt">=${from} GROUP BY date_trunc('month', "createdAt") ORDER BY month`),
-      this.db.news.groupBy({by:['categoryId'],_count:{_all:true},where:{published:true}}),
+
+  @Get('registrations') async registrations(
+    @Req() req: Request,
+    @Query('page') page = '1',
+    @Query('limit') limit = '15',
+    @Query('q') q = '',
+    @Query('status') status = '',
+    @Query('course') course = '',
+  ) {
+    await requirePermission(this.db, req, 'registrations.read');
+    const p = Math.max(1, Number(page) || 1);
+    const n = Math.max(1, Math.min(50, Number(limit) || 15));
+    const search = q.trim().slice(0, 100);
+    const where: Prisma.RegistrationWhereInput = {
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { reference: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search } },
+            ],
+          }
+        : {}),
+      ...((REGISTRATION_STATUSES as readonly string[]).includes(status)
+        ? { status: status as RegistrationStatus }
+        : {}),
+      ...(course ? { courseName: course } : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.db.registration.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (p - 1) * n,
+        take: n,
+        select: {
+          id: true,
+          reference: true,
+          name: true,
+          phone: true,
+          courseName: true,
+          province: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+      this.db.registration.count({ where }),
     ]);
-    const categoryIds=categories.map(x=>x.categoryId).filter((x):x is string=>Boolean(x));
-    const names=categoryIds.length?await this.db.newsCategory.findMany({where:{id:{in:categoryIds}},select:{id:true,name:true}}):[];
-    return {from:from.toISOString(),publications,messages,categories:categories.map(x=>({name:names.find(n=>n.id===x.categoryId)?.name??'Sem categoria',total:x._count._all}))};
+    return {
+      data,
+      meta: { page: p, limit: n, total, totalPages: Math.max(1, Math.ceil(total / n)) },
+    };
   }
-  @Get('courses') async courses(@Req() req: Request) {
-    await requirePermission(this.db, req, 'courses.manage');
-    return this.db.course.findMany({ orderBy: { updatedAt: 'desc' } });
-  }
-  @Get('courses/:id') async course(@Req() req: Request, @Param('id') id: string) {
-    await requirePermission(this.db, req, 'courses.manage');
-    const row = await this.db.course.findUnique({ where: { id } });
-    if (!row) throw new NotFoundException('Curso não encontrado.');
-    return row;
-  }
+
   @Get('registrations/:id') async registration(@Req() req: Request, @Param('id') id: string) {
     await requirePermission(this.db, req, 'registrations.read');
     const row = await this.db.registration.findUnique({
@@ -168,59 +400,117 @@ export class AdminController {
       include: { notes: { orderBy: { createdAt: 'desc' } } },
     });
     if (!row) throw new NotFoundException('Inscrição não encontrada.');
-    return row;
-  }
-  @Post('courses') async createCourse(@Req() req: Request, @Body() d: CourseDto) {
-    const a = await requirePermission(this.db, req, 'courses.manage');
-    if (!d.name || !d.area) throw new BadRequestException('Indique o nome e a área do curso.');
-    const slug = d.name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    const row = await this.db.course.create({
-      data: {
-        name: d.name,
-        area: d.area,
-        description: d.description,
-        slug,
-        published: d.published ?? false,
-        enrollmentOpen: d.enrollmentOpen ?? false,
-        duration: d.duration,
-        requirements: d.requirements,
-      },
+    const authors = await this.db.adminUser.findMany({
+      where: { id: { in: [...new Set(row.notes.map((n) => n.adminId))] } },
+      select: { id: true, email: true, displayName: true },
     });
-    await this.db.auditLog.create({
-      data: { adminId: a.id, action: 'COURSE_CREATED', targetId: row.id },
-    });
-    return row;
+    return {
+      ...row,
+      notes: row.notes.map((n) => {
+        const author = authors.find((a) => a.id === n.adminId);
+        return { ...n, author: author?.displayName || author?.email || 'Administrador' };
+      }),
+    };
   }
-  @Patch('courses/:id') async updateCourse(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Body() d: CourseDto,
-  ) {
-    await requirePermission(this.db, req, 'courses.manage');
-    return this.db.course.update({ where: { id }, data: d });
-  }
-  @Patch('registrations/:id') async change(
+
+  @Patch('registrations/:id') async changeRegistration(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() d: StatusDto,
   ) {
     const a = await requirePermission(this.db, req, 'registrations.manage');
-    const result = await this.db.registration.update({
+    const current = await this.db.registration.findUnique({
       where: { id },
-      data: { status: d.status as never },
+      select: { status: true },
     });
+    if (!current) throw new NotFoundException('Inscrição não encontrada.');
+    const result = await this.db.registration.update({ where: { id }, data: { status: d.status } });
     if (d.note?.trim())
       await this.db.registrationNote.create({
         data: { registrationId: id, adminId: a.id, body: d.note.trim() },
       });
-    await this.db.auditLog.create({
-      data: { adminId: a.id, action: `STATUS_${d.status}`, targetId: id },
-    });
+    if (current.status !== d.status)
+      await audit(this.db, a.id, `STATUS_${d.status}`, id, 'registrations', {
+        from: current.status,
+      });
     return result;
+  }
+
+  @Get('courses') async courses(@Req() req: Request) {
+    await requirePermission(this.db, req, 'courses.manage');
+    return this.db.course.findMany({
+      orderBy: [{ area: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { registrations: true } } },
+    });
+  }
+
+  @Get('courses/areas') async courseAreas(@Req() req: Request) {
+    await requirePermission(this.db, req, 'courses.manage');
+    return areas.map((a) => ({ name: a.name, icon: a.icon }));
+  }
+
+  @Get('courses/:id') async course(@Req() req: Request, @Param('id') id: string) {
+    await requirePermission(this.db, req, 'courses.manage');
+    const row = await this.db.course.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('Curso não encontrado.');
+    return row;
+  }
+
+  @Post('courses') async createCourse(@Req() req: Request, @Body() d: CourseDto) {
+    const a = await requirePermission(this.db, req, 'courses.manage');
+    if (!d.name || !d.area) throw new BadRequestException('Indique o nome e a área do curso.');
+    const slug = slugify(d.name);
+    if (await this.db.course.findUnique({ where: { slug } }))
+      throw new BadRequestException('Já existe um curso com este nome.');
+    const row = await this.db.course.create({
+      data: {
+        name: d.name.trim(),
+        area: d.area,
+        slug,
+        description: d.description?.trim() ?? '',
+        published: d.published ?? false,
+        enrollmentOpen: d.enrollmentOpen ?? false,
+        duration: d.duration ?? null,
+        requirements: d.requirements ?? null,
+        imageUrl: assertImageUrl(d.imageUrl),
+        imagePublicId: d.imagePublicId ?? null,
+      },
+    });
+    await audit(this.db, a.id, 'COURSE_CREATED', row.id, 'courses');
+    return row;
+  }
+
+  @Patch('courses/:id') async updateCourse(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() d: CourseDto,
+  ) {
+    const a = await requirePermission(this.db, req, 'courses.manage');
+    const current = await this.db.course.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Curso não encontrado.');
+    const imageChanged = d.imageUrl !== undefined && d.imageUrl !== current.imageUrl;
+    const row = await this.db.course.update({
+      where: { id },
+      data: {
+        ...d,
+        name: d.name?.trim(),
+        imageUrl: d.imageUrl === undefined ? undefined : assertImageUrl(d.imageUrl),
+        imagePublicId: imageChanged ? (d.imagePublicId ?? null) : undefined,
+      },
+    });
+    if (imageChanged && current.imagePublicId !== row.imagePublicId)
+      await deleteImage(current.imagePublicId);
+    await audit(this.db, a.id, 'COURSE_UPDATED', id, 'courses', { fields: Object.keys(d) });
+    return row;
+  }
+
+  @Delete('courses/:id') async deleteCourse(@Req() req: Request, @Param('id') id: string) {
+    const a = await requirePermission(this.db, req, 'courses.manage');
+    const current = await this.db.course.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Curso não encontrado.');
+    await this.db.course.delete({ where: { id } });
+    await deleteImage(current.imagePublicId);
+    await audit(this.db, a.id, 'COURSE_DELETED', id, 'courses', { name: current.name });
+    return { ok: true };
   }
 }

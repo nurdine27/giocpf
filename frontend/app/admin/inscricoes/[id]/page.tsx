@@ -1,5 +1,13 @@
-import { RegistrationDetail } from '@/components/registration-detail';
-export default async function Detail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return <RegistrationDetail id={id} />;
+'use client';
+import { use } from 'react';
+import { RequirePermission } from '@/components/admin/admin-layout';
+import { RegistrationDetail } from '@/components/admin/registrations';
+
+export default function InscricaoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return (
+    <RequirePermission any={['registrations.read']}>
+      <RegistrationDetail id={id} />
+    </RequirePermission>
+  );
 }

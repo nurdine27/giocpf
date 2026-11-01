@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { Header, Footer } from '@/components/site-shell';
+import './site.css';
+import './admin.css';
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL || 'https://giocentrodeformacao.co.mz'),
   title: {
@@ -23,9 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <a className="skip-link" href="#conteudo">
           Saltar para o conteúdo
         </a>
-        <Header />
         {children}
-        <Footer />
       </body>
     </html>
   );

@@ -1,6 +1,11 @@
-import { AdminUsers } from '@/components/admin-users';
-import type { Metadata } from 'next';
-export const metadata: Metadata = { title: 'Administradores e permissões' };
-export default function AdministradoresPage(){return <AdminUsers/>;}
+'use client';
+import { RequirePermission } from '@/components/admin/admin-layout';
+import { TeamAdmin } from '@/components/admin/users';
 
-
+export default function AdministradoresPage() {
+  return (
+    <RequirePermission any={['users.manage']}>
+      <TeamAdmin />
+    </RequirePermission>
+  );
+}

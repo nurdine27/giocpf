@@ -20,9 +20,14 @@ model AdminUser {
   passwordHash String
   permissions  String[] @default([])
   isSuperAdmin Boolean  @default(false)
+  active       Boolean  @default(true)
+  roleId       String?
+  role         Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
   displayName  String   @default("")
   phone        String?
   profilePhotoUrl String?
+  profilePhotoPublicId String?
+  lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
   sessions     AdminSession[]
   news         News[]
@@ -32,6 +37,17 @@ model AdminUser {
   messages     ContactMessage[]
   replies      MessageReply[]
   settingsUpdates InstitutionSetting[]
+}
+
+model Role {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String      @default("")
+  permissions String[]    @default([])
+  isSystem    Boolean     @default(false)
+  users       AdminUser[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
 
 model NewsCategory {
@@ -150,6 +166,7 @@ model Course {
   area           String
   description    String         @default("")
   imageUrl       String?
+  imagePublicId  String?
   duration       String?
   requirements   String?
   published      Boolean        @default(false)
