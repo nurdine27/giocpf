@@ -204,7 +204,7 @@ function EmailPanel() {
               </span>
             ) : (
               <span className="badge tone-warning">
-                <Icon name="warning" /> Não configurado
+                <Icon name="warning" /> Indisponível
               </span>
             )}
           </dd>
@@ -213,7 +213,9 @@ function EmailPanel() {
           <dt>
             <Icon name="outgoing_mail" /> Remetente
           </dt>
-          <dd>{data.from ?? '—'}</dd>
+          <dd>
+            {data.from?.includes('TEU-DOMINIO-VALIDADO') ? 'A configurar' : data.from ?? '—'}
+          </dd>
         </div>
         <div>
           <dt>
@@ -230,8 +232,8 @@ function EmailPanel() {
       </dl>
       {!active && (
         <p className="muted-text email-hint">
-          Defina <code>RESEND_API_KEY</code> e <code>MAIL_FROM</code> no ficheiro <code>.env</code>{' '}
-          do servidor e reinicie a API.
+          O envio de e-mails ainda não está disponível. As mensagens recebidas continuam guardadas
+          no painel. Contacte o suporte técnico para activar as notificações por e-mail.
         </p>
       )}
     </Panel>
